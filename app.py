@@ -37,15 +37,6 @@ pc = Pinecone(
 )
 logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{st.secrets["pinecone_api_key"][-4:] if st.secrets["pinecone_api_key"] else 'Not found'}")
 
-# Initialize Galileo logger with project and log stream
-logger_debug.info("Initializing Galileo logger")
-logger = GalileoLogger(
-    project=st.secrets["galileo_project"],
-    log_stream=st.secrets["galileo_log_stream"]
-)
-logger_debug.debug(f"Galileo Project: {st.secrets["galileo_project"]}")
-logger_debug.debug(f"Galileo Log Stream: {st.secrets["galileo_log_stream"]}")
-
 # Define RAG response type
 class RagResponse:
     def __init__(self, documents: List[Dict[str, Any]]):
@@ -221,6 +212,22 @@ async def main():
     # Sidebar for configuration
     with st.sidebar:
         st.header("Configuration")
+        
+        # Add Galileo configuration fields
+        st.subheader("Galileo Configuration")
+        galileo_project = st.text_input(
+            "Galileo Project",
+            value=st.secrets["galileo_project"],
+            help="The name of your Galileo project"
+        )
+        galileo_log_stream = st.text_input(
+            "Galileo Log Stream",
+            value=st.secrets["galileo_log_stream"],
+            help="The name of your Galileo log stream"
+        )
+        
+        # Existing configuration
+        st.subheader("RAG Configuration")
         use_rag = st.checkbox("Use RAG", value=True)
         namespace = st.text_input("Namespace", value="sp500-qa-demo")
         top_k = st.number_input("Top K", min_value=1, max_value=10, value=3)
@@ -234,6 +241,15 @@ async def main():
 3. Format all monetary values with dollar signs and two decimal places.""")
         logger_debug.debug(f"Configuration - RAG: {use_rag}, Namespace: {namespace}, Top K: {top_k}")
     
+    # Initialize Galileo logger with values from input fields
+    logger_debug.info("Initializing Galileo logger")
+    logger = GalileoLogger(
+        project=galileo_project,
+        log_stream=galileo_log_stream
+    )
+    logger_debug.debug(f"Galileo Project: {galileo_project}")
+    logger_debug.debug(f"Galileo Log Stream: {galileo_log_stream}")
+
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
