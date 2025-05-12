@@ -1,5 +1,5 @@
 streamlit==1.32.0
 openai
-python-dotenv==1.0.1
 galileo[all]
 pinecone
+json

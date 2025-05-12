@@ -5,6 +5,7 @@ import requests
 import logging
 from typing import Optional
 from galileo import GalileoLogger
+import streamlit as st
 
 # Mock database for testing
 MOCK_PRICE_DB = {
@@ -129,9 +130,7 @@ def get_stock_price(ticker: str, galileo_logger: GalileoLogger) -> str:
     start_time = time.time()
     try:
         # First try the API
-        api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
-        if not api_key:
-            raise ValueError("ALPHA_VANTAGE_API_KEY environment variable is not set")
+        api_key = st.secrets["alpha_vantage_api_key"]
         
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={api_key}"
         response = requests.get(url)

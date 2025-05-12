@@ -1,8 +1,7 @@
-import streamlit as st
-import openai
-from dotenv import load_dotenv
 import os
 import json
+import streamlit as st
+import openai
 from galileo import GalileoLogger
 import time
 import logging
@@ -19,33 +18,33 @@ from tools.purchase_stocks import purchase_stocks
 logging.basicConfig(level=logging.DEBUG)
 logger_debug = logging.getLogger(__name__)
 
-# Load environment variables from .env.local
-logger_debug.info("Loading environment variables from .env.local")
-load_dotenv('.env.local')
+os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
+os.environ["GALILEO_PROJECT_NAME"] = st.secrets["galileo_project"]
+os.environ["GALILEO_LOG_STREAM_NAME"] = st.secrets["galileo_log_stream"]
 
 # Initialize OpenAI client
 logger_debug.info("Initializing OpenAI client")
 openai_client = OpenAI(
-    api_key=os.getenv('OPENAI_API_KEY')
+    api_key=st.secrets["openai_api_key"]
 )
-logger_debug.debug(f"OpenAI API Key loaded: {'*' * 8}{os.getenv('OPENAI_API_KEY')[-4:] if os.getenv('OPENAI_API_KEY') else 'Not found'}")
+logger_debug.debug(f"OpenAI API Key loaded: {'*' * 8}{st.secrets["openai_api_key"][-4:] if st.secrets["openai_api_key"] else 'Not found'}")
 
 # Initialize Pinecone
 logger_debug.info("Initializing Pinecone client")
 pc = Pinecone(
-    api_key=os.getenv('PINECONE_API_KEY'),
+    api_key=st.secrets["pinecone_api_key"],
     spec=ServerlessSpec(cloud="aws", region="us-west-2")
 )
-logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{os.getenv('PINECONE_API_KEY')[-4:] if os.getenv('PINECONE_API_KEY') else 'Not found'}")
+logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{st.secrets["pinecone_api_key"][-4:] if st.secrets["pinecone_api_key"] else 'Not found'}")
 
 # Initialize Galileo logger with project and log stream
 logger_debug.info("Initializing Galileo logger")
 logger = GalileoLogger(
-    project=os.getenv('GALILEO_PROJECT_NAME'),
-    log_stream=os.getenv('GALILEO_LOG_STREAM_NAME')
+    project=st.secrets["galileo_project"],
+    log_stream=st.secrets["galileo_log_stream"]
 )
-logger_debug.debug(f"Galileo Project: {os.getenv('GALILEO_PROJECT_NAME')}")
-logger_debug.debug(f"Galileo Log Stream: {os.getenv('GALILEO_LOG_STREAM_NAME')}")
+logger_debug.debug(f"Galileo Project: {st.secrets["galileo_project"]}")
+logger_debug.debug(f"Galileo Log Stream: {st.secrets["galileo_log_stream"]}")
 
 # Define RAG response type
 class RagResponse:
@@ -67,7 +66,7 @@ async def get_rag_response(query: str, namespace: str, top_k: int) -> Optional[R
         logger_debug.debug(f"Generated embedding of length: {len(query_embedding)}")
         
         # Initialize Pinecone index
-        index_name = os.getenv('PINECONE_INDEX_NAME')
+        index_name = st.secrets["pinecone_index_name"]
         logger_debug.debug(f"Using Pinecone index: {index_name}")
         if not index_name:
             logger_debug.error("PINECONE_INDEX_NAME environment variable is not set")

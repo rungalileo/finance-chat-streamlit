@@ -15,11 +15,22 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file in the `streamlit_app` directory with the following variables:
-```
-OPENAI_API_KEY=your_openai_api_key
-GALILEO_PROJECT_NAME=your_galileo_project_name
-GALILEO_LOG_STREAM_NAME=your_galileo_log_stream_name
+3. Create a `.streamlit/secrets.toml` file with the following structure:
+```toml
+# API Keys
+openai_api_key = "your_openai_api_key"
+galileo_api_key = "your_galileo_api_key"
+alpha_vantage_api_key = "your_alpha_vantage_api_key"
+pinecone_api_key = "your_pinecone_api_key"
+
+# Galileo Configuration
+galileo_project = "your_galileo_project"
+galileo_log_stream = "default"
+galileo_console_url = "https://app.galileo.ai"
+
+# Pinecone Configuration
+pinecone_index_name = "galileo-demo"
+pinecone_namespace = "sp500-qa-demo"
 ```
 
 ## Running the Application
