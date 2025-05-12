@@ -8,6 +8,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from pinecone import Pinecone, ServerlessSpec
 from openai import OpenAI
+from urllib.parse import unquote
+from galileo_api_helper import get_galileo_project_id, get_galileo_log_stream_id
 
 # Import tools
 from tools.get_ticker_symbol import get_ticker_symbol
@@ -204,6 +206,10 @@ async def main():
     st.title("RAG Chat Application")
     logger_debug.info("Starting Streamlit application")
     
+    # Get default values from query parameters or fall back to secrets
+    default_project = unquote(st.query_params.get("project", st.secrets["galileo_project"]))
+    default_log_stream = unquote(st.query_params.get("log_stream", st.secrets["galileo_log_stream"]))
+    
     # Initialize chat history
     if "messages" not in st.session_state:
         logger_debug.info("Initializing new chat history")
@@ -213,16 +219,36 @@ async def main():
     with st.sidebar:
         st.header("Configuration")
         
+        # Add trace link at the top of the sidebar
+        api_key = st.secrets["galileo_api_key"]
+        project_id = get_galileo_project_id(api_key, default_project)
+        log_stream_id = get_galileo_log_stream_id(api_key, project_id, default_log_stream) if project_id else None
+
+        if project_id and log_stream_id:
+            project_url = f"{st.secrets['galileo_console_url']}/project/{project_id}/log-streams/{log_stream_id}"
+            st.markdown(
+                f'<div style="font-size: 0.8em; color: #666; margin-bottom: 1em;">'
+                f'<a href="{project_url}" target="_blank" title="View traces in Galileo">'
+                f'📊 View traces</a></div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div style="font-size: 0.8em; color: #666; margin-bottom: 1em;">'
+                '📊 Traces logged</div>',
+                unsafe_allow_html=True
+            )
+        
         # Add Galileo configuration fields
         st.subheader("Galileo Configuration")
         galileo_project = st.text_input(
             "Galileo Project",
-            value=st.secrets["galileo_project"],
+            value=default_project,
             help="The name of your Galileo project"
         )
         galileo_log_stream = st.text_input(
             "Galileo Log Stream",
-            value=st.secrets["galileo_log_stream"],
+            value=default_log_stream,
             help="The name of your Galileo log stream"
         )
         
@@ -548,6 +574,31 @@ async def main():
             logger_debug.info("Flushing trace to Galileo")
             logger.flush()
             logger_debug.info("Trace successfully flushed")
+
+            # Get the project ID and log stream ID using the helpers
+            api_key = st.secrets["galileo_api_key"]
+            project_id = get_galileo_project_id(api_key, galileo_project)
+            log_stream_id = get_galileo_log_stream_id(api_key, project_id, galileo_log_stream) if project_id else None
+
+            if project_id and log_stream_id:
+                project_url = f"{st.secrets['galileo_console_url']}/project/{project_id}/log-streams/{log_stream_id}"
+                # Add a small icon with tooltip in the sidebar
+                with st.sidebar:
+                    st.markdown("---")  # Add a subtle separator
+                    st.markdown(
+                        f'<div style="font-size: 0.8em; color: #666;">'
+                        f'<a href="{project_url}" target="_blank" title="View traces in Galileo">'
+                        f'📊 View traces</a></div>',
+                        unsafe_allow_html=True
+                    )
+            else:
+                with st.sidebar:
+                    st.markdown("---")
+                    st.markdown(
+                        '<div style="font-size: 0.8em; color: #666;">'
+                        '📊 Traces logged</div>',
+                        unsafe_allow_html=True
+                    )
             
         except Exception as e:
             logger_debug.error(f"Error occurred: {str(e)}", exc_info=True)
