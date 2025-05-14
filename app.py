@@ -12,6 +12,7 @@ from urllib.parse import unquote
 from galileo_api_helper import get_galileo_project_id, get_galileo_log_stream_id, list_galileo_experiments, delete_all_galileo_experiments
 
 # Import tools
+from log_hallucination import log_hallucination
 from tools.get_ticker_symbol import get_ticker_symbol
 from tools.get_stock_price import get_stock_price
 from tools.purchase_stocks import purchase_stocks
@@ -327,6 +328,17 @@ async def main():
         # Use the logger from session state
         logger = st.session_state.galileo_logger
         
+        # Add model selection dropdown
+        st.subheader("Model Configuration")
+        model_option = st.selectbox(
+            "Select GPT Model",
+            options=["gpt-4", "gpt-3.5-turbo"],
+            index=0,  # Default to GPT-4
+            format_func=lambda x: "GPT-4" if x == "gpt-4" else "GPT-3.5 Turbo",
+            help="Select which OpenAI model to use for chat responses"
+        )
+        logger_debug.debug(f"Selected model: {model_option}")
+        
         # Session control buttons
         if not st.session_state.session_active:
             # Show Start Session button when no active session
@@ -354,7 +366,7 @@ async def main():
         st.subheader("RAG Configuration")
         use_rag = st.checkbox("Use RAG", value=True)
         namespace = st.text_input("Namespace", value="sp500-qa-demo")
-        top_k = st.number_input("Top K", min_value=1, max_value=10, value=3)
+        top_k = st.number_input("Top K", min_value=1, max_value=20, value=10)
         system_prompt = st.text_area("System Prompt", value="""You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades. Follow these guidelines:
 
 1. For analysis questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
@@ -365,6 +377,15 @@ async def main():
 3. Format all monetary values with dollar signs and two decimal places.""")
         logger_debug.debug(f"Configuration - RAG: {use_rag}, Namespace: {namespace}, Top K: {top_k}")
         
+
+        hallucination_button = st.button(
+            "Log Sample Hallucination", 
+            type="primary", 
+        )
+
+        if hallucination_button:
+            log_hallucination(galileo_project, galileo_log_stream)
+
         # Add a danger zone section at the bottom
         st.markdown("---")
         st.subheader("⚠️ Danger Zone")
@@ -510,7 +531,7 @@ async def main():
                 
                 print(messages_to_use)
                 response = openai_client.chat.completions.create(
-                    model="gpt-4",
+                    model=model_option,
                     messages=messages_to_use,
                     tools=openai_tools,
                     tool_choice="auto"
@@ -554,12 +575,12 @@ async def main():
                             } for call in (response_message.tool_calls or [])
                         ] if response_message.tool_calls else None
                     },
-                    model="gpt-4",
+                    model=model_option,
                     name="OpenAI API Call",
                     tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
                           for name, tool in tools.items()],
                     duration_ns=int((time.time() - start_time) * 1000000),
-                    metadata={"temperature": "0.7"},
+                    metadata={"temperature": "0.7", "model": model_option},
                     tags=["api-call"],
                     num_input_tokens=input_tokens,
                     num_output_tokens=output_tokens,
@@ -624,7 +645,7 @@ async def main():
                         # Get a new response from OpenAI with the tool results
                         logger_debug.info("Getting follow-up response with tool results")
                         follow_up_response = openai_client.chat.completions.create(
-                            model="gpt-4",
+                            model=model_option,
                             messages=messages_to_use,
                             tools=openai_tools,
                             tool_choice="auto"
@@ -667,12 +688,12 @@ async def main():
                                     } for call in (response_message.tool_calls or [])
                                 ] if response_message.tool_calls else None
                             },
-                            model="gpt-4",
+                            model=model_option,
                             name="Follow-up OpenAI API Call",
                             tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
                                   for name, tool in tools.items()],
                             duration_ns=int((time.time() - start_time) * 1000000),
-                            metadata={"temperature": "0.7"},
+                            metadata={"temperature": "0.7", "model": model_option},
                             tags=["api-call", "follow-up"],
                             num_input_tokens=follow_up_input_tokens,
                             num_output_tokens=follow_up_output_tokens,
