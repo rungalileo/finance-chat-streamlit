@@ -115,7 +115,8 @@ async def main():
     galileo_api_key = st.secrets["galileo_api_key"]
     galileo_project = st.secrets["galileo_project"]
     galileo_log_stream = st.secrets["galileo_log_stream"]
-    
+    galileo_console_url = st.secrets["galileo_console_url"]
+
     # Initialize ChatCore configuration
     config = ChatConfig(
         openai_api_key=openai_api_key,
@@ -123,7 +124,8 @@ async def main():
         pinecone_index_name=pinecone_index_name,
         galileo_api_key=galileo_api_key,
         galileo_project=galileo_project,
-        galileo_log_stream=galileo_log_stream
+        galileo_log_stream=galileo_log_stream,
+        galileo_console_url=galileo_console_url
     )
     
     # Initialize ChatCore

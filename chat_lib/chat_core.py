@@ -19,13 +19,15 @@ class ChatConfig:
                  pinecone_index_name: str,
                  galileo_api_key: str,
                  galileo_project: str,
-                 galileo_log_stream: str):
+                 galileo_log_stream: str,
+                 galileo_console_url: str):
         self.openai_api_key = openai_api_key
         self.pinecone_api_key = pinecone_api_key
         self.pinecone_index_name = pinecone_index_name
         self.galileo_api_key = galileo_api_key
         self.galileo_project = galileo_project
         self.galileo_log_stream = galileo_log_stream
+        self.galileo_console_url = galileo_console_url
 
 # Define RAG response type
 class RagResponse:
@@ -57,6 +59,7 @@ class ChatCore:
         os.environ["GALILEO_API_KEY"] = config.galileo_api_key
         os.environ["GALILEO_PROJECT_NAME"] = config.galileo_project
         os.environ["GALILEO_LOG_STREAM_NAME"] = config.galileo_log_stream
+        os.environ["GALILEO_CONSOLE_URL"] = config.galileo_console_url
         
         self.galileo_logger = GalileoLogger(
             project=config.galileo_project,

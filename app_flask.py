@@ -23,7 +23,8 @@ config = ChatConfig(
     pinecone_index_name=os.environ.get("PINECONE_INDEX_NAME"),
     galileo_api_key=os.environ.get("GALILEO_API_KEY"), 
     galileo_project=os.environ.get("GALILEO_PROJECT"),
-    galileo_log_stream=os.environ.get("GALILEO_LOG_STREAM")
+    galileo_log_stream=os.environ.get("GALILEO_LOG_STREAM"),
+    galileo_console_url=os.environ.get("GALILEO_CONSOLE_URL")
 )
 
 # Initialize ChatCore

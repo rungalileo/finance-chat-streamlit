@@ -1,6 +1,11 @@
-import requests
 import logging
 import time
+
+import requests
+import streamlit as st
+
+
+galileo_console_url = st.secrets['galileo_console_url']
 
 def get_galileo_project_id(api_key: str, project_name: str, starting_token: int = 0, limit: int = 10) -> str:
     """
@@ -15,13 +20,13 @@ def get_galileo_project_id(api_key: str, project_name: str, starting_token: int 
     Returns:
         str: The project ID if found, else None.
     """
-    url = f"https://app.galileo.ai/api/galileo/v2/projects?starting_token={starting_token}&limit={limit}&actions=delete"
+    url = f"{galileo_console_url}/api/galileo/v2/projects?starting_token={starting_token}&limit={limit}&actions=delete"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": galileo_console_url,
+        "referer": galileo_console_url,
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -53,13 +58,13 @@ def get_galileo_log_stream_id(api_key: str, project_id: str, log_stream_name: st
     Returns:
         str: The log stream ID if found, else None.
     """
-    url = f"https://app.galileo.ai/api/galileo/v2/projects/{project_id}/log_streams"
+    url = f"{galileo_console_url}/api/galileo/v2/projects/{project_id}/log_streams"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": galileo_console_url,
+        "referer": galileo_console_url,
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -85,13 +90,13 @@ def list_galileo_experiments(api_key: str, project_id: str) -> list:
     Returns:
         list: A list of experiment objects with details.
     """
-    url = f"https://api.galileo.ai/v2/projects/{project_id}/experiments"
+    url = f"{galileo_console_url}/api/galileo/v2/projects/{project_id}/experiments"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": galileo_console_url,
+        "referer": galileo_console_url,
     }
     
     try:
@@ -117,13 +122,13 @@ def delete_galileo_experiment(api_key: str, project_id: str, experiment_id: str)
     Returns:
         bool: True if deletion was successful, False otherwise.
     """
-    url = f"https://api.galileo.ai/v2/projects/{project_id}/experiments/{experiment_id}"
+    url = f"{galileo_console_url}/api/galileo/v2/projects/{project_id}/experiments/{experiment_id}"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": galileo_console_url,
+        "referer": galileo_console_url,
     }
     
     try:
