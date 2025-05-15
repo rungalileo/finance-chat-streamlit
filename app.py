@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger_debug = logging.getLogger(__name__)
 
 os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
+os.environ["GALILEO_CONSOLE_URL"] = st.secrets["galileo_console_url"]
 os.environ["GALILEO_PROJECT_NAME"] = st.secrets["galileo_project"]
 os.environ["GALILEO_LOG_STREAM_NAME"] = st.secrets["galileo_log_stream"]
 
@@ -319,6 +320,7 @@ async def main():
         )
         
         # Initialize the logger in session state if not already present
+        # HERE
         if "galileo_logger" not in st.session_state:
             st.session_state.galileo_logger = GalileoLogger(
                 project=galileo_project,
