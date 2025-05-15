@@ -10,6 +10,7 @@ from pinecone import Pinecone, ServerlessSpec
 from openai import OpenAI
 from urllib.parse import unquote
 from galileo_api_helper import get_galileo_project_id, get_galileo_log_stream_id, list_galileo_experiments, delete_all_galileo_experiments
+from chat_lib.galileo_logger import initialize_galileo_logger
 
 # Import tools
 from log_hallucination import log_hallucination
@@ -18,7 +19,7 @@ from tools.get_stock_price import get_stock_price
 from tools.purchase_stocks import purchase_stocks
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger_debug = logging.getLogger(__name__)
 
 os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
@@ -30,7 +31,7 @@ logger_debug.info("Initializing OpenAI client")
 openai_client = OpenAI(
     api_key=st.secrets["openai_api_key"]
 )
-logger_debug.debug(f"OpenAI API Key loaded: {'*' * 8}{st.secrets["openai_api_key"][-4:] if st.secrets["openai_api_key"] else 'Not found'}")
+logger_debug.debug(f"OpenAI API Key loaded: {'*' * 8}{st.secrets['openai_api_key'][-4:] if st.secrets['openai_api_key'] else 'Not found'}")
 
 # Initialize Pinecone
 logger_debug.info("Initializing Pinecone client")
@@ -38,7 +39,7 @@ pc = Pinecone(
     api_key=st.secrets["pinecone_api_key"],
     spec=ServerlessSpec(cloud="aws", region="us-west-2")
 )
-logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{st.secrets["pinecone_api_key"][-4:] if st.secrets["pinecone_api_key"] else 'Not found'}")
+logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{st.secrets['pinecone_api_key'][-4:] if st.secrets['pinecone_api_key'] else 'Not found'}")
 
 # Define RAG response type
 class RagResponse:
@@ -304,30 +305,22 @@ async def main():
     # Sidebar for configuration
     with st.sidebar:
         st.header("Configuration")
-        
-        # Add Galileo configuration fields
-        st.subheader("Galileo Configuration")
-        galileo_project = st.text_input(
-            "Galileo Project",
-            value=default_project,
-            help="The name of your Galileo project"
-        )
-        galileo_log_stream = st.text_input(
-            "Galileo Log Stream",
-            value=default_log_stream,
-            help="The name of your Galileo log stream"
-        )
-        
-        # Initialize the logger in session state if not already present
-        if "galileo_logger" not in st.session_state:
-            st.session_state.galileo_logger = GalileoLogger(
-                project=galileo_project,
-                log_stream=galileo_log_stream
+
+        if not "galileo_logger" in st.session_state:
+            # Add Galileo configuration fields
+            st.subheader("Galileo Configuration")
+            galileo_project = st.text_input(
+                "Galileo Project",
+                value=default_project,
+                help="The name of your Galileo project"
+            )
+            galileo_log_stream = st.text_input(
+                "Galileo Log Stream",
+                value=default_log_stream,
+                help="The name of your Galileo log stream"
             )
         
-        # Use the logger from session state
-        logger = st.session_state.galileo_logger
-        
+
         # Add model selection dropdown
         st.subheader("Model Configuration")
         model_option = st.selectbox(
@@ -339,10 +332,15 @@ async def main():
         )
         logger_debug.debug(f"Selected model: {model_option}")
         
+
         # Session control buttons
         if not st.session_state.session_active:
             # Show Start Session button when no active session
             if st.button("Start New Session", type="primary"):
+
+                st.session_state.galileo_logger = initialize_galileo_logger(galileo_project, galileo_log_stream)
+                logger = st.session_state.galileo_logger
+
                 st.session_state.session_active = True
                 st.session_state.messages = []  # Clear any previous messages
                 
@@ -350,7 +348,7 @@ async def main():
                 logger_debug.info("Starting new Galileo session")
                 try:
                     # start_session doesn't return a session ID
-                    logger.start_session(
+                    st.session_state.galileo_logger.start_session(
                         name=f"Chat Session {time.strftime('%Y-%m-%d %H:%M:%S')}"
                     )
                     # Generate our own session ID for reference
@@ -378,72 +376,73 @@ async def main():
         logger_debug.debug(f"Configuration - RAG: {use_rag}, Namespace: {namespace}, Top K: {top_k}")
         
 
-        hallucination_button = st.button(
-            "Log Sample Hallucination", 
-            type="primary", 
-        )
-
-        if hallucination_button:
-            log_hallucination(galileo_project, galileo_log_stream)
-
-        # Add a danger zone section at the bottom
-        st.markdown("---")
-        st.subheader("⚠️ Danger Zone")
-        
-        # Collapsible section to avoid accidental clicks
-        with st.expander("Experiment Management"):
-            # First show the current experiments
-            if st.button("List Experiments"):
-                api_key = st.secrets["galileo_api_key"]
-                project_id = get_galileo_project_id(api_key, galileo_project)
-                
-                if project_id:
-                    experiments = list_galileo_experiments(api_key, project_id)
-                    if experiments:
-                        st.write(f"Found {len(experiments)} experiments:")
-                        for exp in experiments:
-                            st.write(f"• {exp.get('name', 'Unnamed')} ({exp.get('id')})")
-                    else:
-                        st.info("No experiments found.")
-                else:
-                    st.error(f"Project '{galileo_project}' not found.")
-            
-            # Add the delete all button with a confirmation and admin key verification
-            delete_confirm = st.checkbox("I understand this will delete ALL experiments")
-            
-            # Add admin key input field
-            admin_key_input = st.text_input("Admin Key", type="password", 
-                                            help="Enter the admin key to enable deletion")
-            
-            # Only enable the delete button if the confirmation is checked AND the admin key is correct
-            is_admin_key_valid = admin_key_input == st.secrets.get("admin_key", "")
-            delete_button = st.button(
-                "Delete All Experiments", 
+        if "galileo_logger" in st.session_state:
+            hallucination_button = st.button(
+                "Log Sample Hallucination", 
                 type="primary", 
-                disabled=not (delete_confirm and is_admin_key_valid)
             )
+
+            if hallucination_button:
+                log_hallucination(st.session_state.galileo_logger.project_name, st.session_state.galileo_logger.log_stream_name)
+
+            # Add a danger zone section at the bottom
+            st.markdown("---")
+            st.subheader("⚠️ Danger Zone")
             
-            # Provide feedback if admin key is incorrect but entered
-            if admin_key_input and not is_admin_key_valid:
-                st.error("Invalid admin key")
-            
-            if delete_button and delete_confirm and is_admin_key_valid:
-                api_key = st.secrets["galileo_api_key"]
-                project_id = get_galileo_project_id(api_key, galileo_project)
-                
-                if project_id:
-                    with st.spinner("Deleting experiments..."):
-                        result = delete_all_galileo_experiments(api_key, project_id)
+            # Collapsible section to avoid accidental clicks
+            with st.expander("Experiment Management"):
+                # First show the current experiments
+                if st.button("List Experiments"):
+                    api_key = st.secrets["galileo_api_key"]
+                    project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
                     
-                    if result["success"]:
-                        st.success(result["message"])
+                    if project_id:
+                        experiments = list_galileo_experiments(api_key, project_id)
+                        if experiments:
+                            st.write(f"Found {len(experiments)} experiments:")
+                            for exp in experiments:
+                                st.write(f"• {exp.get('name', 'Unnamed')} ({exp.get('id')})")
+                        else:
+                            st.info("No experiments found.")
                     else:
-                        st.warning(result["message"])
-                        if result["failed"] > 0:
-                            st.error(f"Failed to delete {result['failed']} experiments.")
-                else:
-                    st.error(f"Project '{galileo_project}' not found.")
-    
+                        st.error(f"Project '{galileo_project}' not found.")
+                
+                # Add the delete all button with a confirmation and admin key verification
+                delete_confirm = st.checkbox("I understand this will delete ALL experiments")
+                
+                # Add admin key input field
+                admin_key_input = st.text_input("Admin Key", type="password", 
+                                                help="Enter the admin key to enable deletion")
+                
+                # Only enable the delete button if the confirmation is checked AND the admin key is correct
+                is_admin_key_valid = admin_key_input == st.secrets.get("admin_key", "")
+                delete_button = st.button(
+                    "Delete All Experiments", 
+                    type="primary", 
+                    disabled=not (delete_confirm and is_admin_key_valid)
+                )
+                
+                # Provide feedback if admin key is incorrect but entered
+                if admin_key_input and not is_admin_key_valid:
+                    st.error("Invalid admin key")
+                
+                if delete_button and delete_confirm and is_admin_key_valid:
+                    api_key = st.secrets["galileo_api_key"]
+                    project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
+                    
+                    if project_id:
+                        with st.spinner("Deleting experiments..."):
+                            result = delete_all_galileo_experiments(api_key, project_id)
+                        
+                        if result["success"]:
+                            st.success(result["message"])
+                        else:
+                            st.warning(result["message"])
+                            if result["failed"] > 0:
+                                st.error(f"Failed to delete {result['failed']} experiments.")
+                    else:
+                        st.error(f"Project '{st.session_state.galileo_logger.project_name}' not found.")
+        
     # Display session status
     if not st.session_state.session_active:
         st.info("⏸️ No active session. Click 'Start New Session' in the sidebar to begin.")
@@ -472,7 +471,7 @@ async def main():
             # Start a new trace within the current session
             start_time = time.time()
             logger_debug.info("Starting new Galileo trace")
-            trace = logger.start_trace(
+            trace = st.session_state.galileo_logger.start_trace(
                 input=prompt,
                 name="Chat Workflow",
                 tags=["chat"],
@@ -490,7 +489,7 @@ async def main():
                         logger_debug.info(f"RAG returned {len(rag_response.documents)} documents")
                         
                         # Log RAG retrieval to Galileo
-                        logger.add_retriever_span(
+                        st.session_state.galileo_logger.add_retriever_span(
                             input=prompt,
                             output=[doc['content'] for doc in rag_response.documents],
                             name="RAG Retriever",
@@ -529,7 +528,6 @@ async def main():
                 logger_debug.debug(f"Messages being sent to OpenAI: {json.dumps([format_message(msg['role'], msg['content']) for msg in messages_to_use], indent=2)}")
                 logger_debug.debug(f"Tools being sent to OpenAI: {json.dumps(openai_tools, indent=2)}")
                 
-                print(messages_to_use)
                 response = openai_client.chat.completions.create(
                     model=model_option,
                     messages=messages_to_use,
@@ -559,7 +557,7 @@ async def main():
 
                 # Log the API call
                 logger_debug.info("Logging API call to Galileo")
-                logger.add_llm_span(
+                st.session_state.galileo_logger.add_llm_span(
                     input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
                     output={
                         "role": response_message.role,
@@ -597,7 +595,7 @@ async def main():
                         for tool_call in response_message.tool_calls:
                             if tool_call.function.name == "getTickerSymbol":
                                 company = json.loads(tool_call.function.arguments)["company"]
-                                ticker = get_ticker_symbol(company, logger)
+                                ticker = get_ticker_symbol(company, st.session_state.galileo_logger)
                                 logger_debug.info(f"Got ticker symbol for {company}: {ticker}")
                                 
                                 # Handle tool call and response
@@ -606,12 +604,12 @@ async def main():
                                     tool_result=ticker,
                                     description=f"Looking up ticker symbol for {company}...",
                                     messages_to_use=messages_to_use,
-                                    logger=logger
+                                    logger=st.session_state.galileo_logger
                                 )
                                 
                             elif tool_call.function.name == "getStockPrice":
                                 ticker = json.loads(tool_call.function.arguments)["ticker"]
-                                result = get_stock_price(ticker, galileo_logger=logger)
+                                result = get_stock_price(ticker, galileo_logger=st.session_state.galileo_logger)
                                 logger_debug.info(f"Got stock price for {ticker}")
                                 
                                 # Handle tool call and response
@@ -620,7 +618,7 @@ async def main():
                                     tool_result=result,
                                     description=f"Getting current price for {ticker}...",
                                     messages_to_use=messages_to_use,
-                                    logger=logger
+                                    logger=st.session_state.galileo_logger
                                 )
                             
                             elif tool_call.function.name == "purchaseStocks":
@@ -629,7 +627,7 @@ async def main():
                                     ticker=args["ticker"],
                                     quantity=args["quantity"],
                                     price=args["price"],
-                                    galileo_logger=logger
+                                    galileo_logger=st.session_state.galileo_logger
                                 )
                                 logger_debug.info(f"Processed stock purchase for {args['ticker']}")
                                 
@@ -639,7 +637,7 @@ async def main():
                                     tool_result=result,
                                     description=f"Processing purchase of {args['quantity']} shares of {args['ticker']}...",
                                     messages_to_use=messages_to_use,
-                                    logger=logger
+                                    logger=st.session_state.galileo_logger
                                 )
                         
                         # Get a new response from OpenAI with the tool results
@@ -672,7 +670,7 @@ async def main():
 
                         # Log the follow-up API call
                         logger_debug.info("Logging follow-up API call to Galileo")
-                        logger.add_llm_span(
+                        st.session_state.galileo_logger.add_llm_span(
                             input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
                             output={
                                 "role": response_message.role,
@@ -715,18 +713,18 @@ async def main():
                 
                 # Conclude the trace
                 logger_debug.info("Concluding Galileo trace")
-                logger.conclude(
+                st.session_state.galileo_logger.conclude(
                     output=response_message.content,
                     duration_ns=int((time.time() - start_time) * 1000000),
                     status_code=200
                 )
-                logger.flush()
+                st.session_state.galileo_logger.flush()
 
                 # Get the project ID and log stream ID using the helpers
                 api_key = st.secrets["galileo_api_key"]
-                project_id = get_galileo_project_id(api_key, galileo_project)
-                log_stream_id = get_galileo_log_stream_id(api_key, project_id, galileo_log_stream) if project_id else None
-
+                project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
+                log_stream_id = get_galileo_log_stream_id(api_key, project_id, st.session_state.galileo_logger.log_stream_name) if project_id else None
+                
                 if project_id and log_stream_id:
                     project_url = f"{st.secrets['galileo_console_url']}/project/{project_id}/log-streams/{log_stream_id}"
                     # Add a small icon with tooltip in the sidebar
@@ -752,7 +750,7 @@ async def main():
                 st.error(f"An error occurred: {str(e)}")
                 # Log error and conclude trace
                 logger_debug.info("Logging error to Galileo")
-                logger.conclude(
+                st.session_state.galileo_logger.conclude(
                     output=f"Error: {str(e)}",
                     duration_ns=int((time.time() - start_time) * 1000000),
                     status_code=500

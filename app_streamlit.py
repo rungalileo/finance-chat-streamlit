@@ -113,28 +113,17 @@ async def main():
     pinecone_api_key = st.secrets["pinecone_api_key"]
     pinecone_index_name = st.secrets["pinecone_index_name"]
     galileo_api_key = st.secrets["galileo_api_key"]
-    galileo_project = st.secrets["galileo_project"]
-    galileo_log_stream = st.secrets["galileo_log_stream"]
     
-    # Initialize ChatCore configuration
-    config = ChatConfig(
-        openai_api_key=openai_api_key,
-        pinecone_api_key=pinecone_api_key,
-        pinecone_index_name=pinecone_index_name,
-        galileo_api_key=galileo_api_key,
-        galileo_project=galileo_project,
-        galileo_log_stream=galileo_log_stream
-    )
-    
-    # Initialize ChatCore
-    chat_core = ChatCore(config)
+    # Get default project and log stream from secrets for initial values
+    default_project = st.secrets.get("galileo_project", "")
+    default_log_stream = st.secrets.get("galileo_log_stream", "default")
     
     st.title("RAG Chat Application")
     logger_debug.info("Starting Streamlit application")
     
-    # Get query parameters
-    default_project = unquote(st.query_params.get("project", galileo_project))
-    default_log_stream = unquote(st.query_params.get("log_stream", galileo_log_stream))
+    # Get query parameters if provided, otherwise use defaults
+    default_project = unquote(st.query_params.get("project", default_project))
+    default_log_stream = unquote(st.query_params.get("log_stream", default_log_stream))
     
     # Initialize session state variables if not present
     if "messages" not in st.session_state:
@@ -162,6 +151,19 @@ async def main():
             value=default_log_stream,
             help="The name of your Galileo log stream"
         )
+        
+        # Initialize ChatCore configuration with UI values
+        config = ChatConfig(
+            openai_api_key=openai_api_key,
+            pinecone_api_key=pinecone_api_key,
+            pinecone_index_name=pinecone_index_name,
+            galileo_api_key=galileo_api_key,
+            galileo_project=galileo_project,
+            galileo_log_stream=galileo_log_stream
+        )
+        
+        # Initialize ChatCore
+        chat_core = ChatCore(config)
         
         # Add model selection dropdown
         st.subheader("Model Configuration")

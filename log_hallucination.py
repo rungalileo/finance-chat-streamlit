@@ -3,12 +3,22 @@ import os
 import time
 from datetime import datetime
 import logging
+from chat_lib.galileo_logger import initialize_galileo_logger
 
 logger_debug = logging.getLogger(__name__)
 
 def log_hallucination(project_name: str, log_stream: str):
-    logger_debug.info('Logging hallucination...')
-    logger = GalileoLogger(project=project_name, log_stream=log_stream)
+    """
+    Log a sample hallucination to Galileo for demonstration and testing purposes.
+    
+    Args:
+        project_name: The Galileo project name to log to
+        log_stream: The Galileo log stream to log to
+    """
+    logger_debug.info(f'Logging hallucination to project: {project_name}, log stream: {log_stream}')
+    
+    # Initialize Galileo logger
+    logger = initialize_galileo_logger(project_name, log_stream)
 
     # Start a workflow trace
     print("Starting workflow trace...")
@@ -86,3 +96,4 @@ Question: What was Broadcom's revenue in Q4 and how did it compare to the previo
         status_code=200
     )
     logger.flush()
+    print(f"Successfully logged hallucination to project: {project_name}, log stream: {log_stream}")

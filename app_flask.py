@@ -8,6 +8,8 @@ import logging
 from tools.get_ticker_symbol import get_ticker_symbol
 from tools.get_stock_price import get_stock_price
 from tools.purchase_stocks import purchase_stocks
+from galileo import GalileoLogger
+from chat_lib.galileo_logger import initialize_galileo_logger
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -16,18 +18,43 @@ logger_debug = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 
+# Get required environment variables
+openai_api_key = os.environ.get("OPENAI_API_KEY", "")
+pinecone_api_key = os.environ.get("PINECONE_API_KEY", "")
+pinecone_index_name = os.environ.get("PINECONE_INDEX_NAME", "")
+galileo_api_key = os.environ.get("GALILEO_API_KEY", "")
+galileo_project = os.environ.get("GALILEO_PROJECT", "")
+galileo_log_stream = os.environ.get("GALILEO_LOG_STREAM", "default")
+
+# Validate required environment variables
+if not all([openai_api_key, pinecone_api_key, pinecone_index_name, galileo_api_key, galileo_project]):
+    missing_vars = []
+    if not openai_api_key: missing_vars.append("OPENAI_API_KEY")
+    if not pinecone_api_key: missing_vars.append("PINECONE_API_KEY")
+    if not pinecone_index_name: missing_vars.append("PINECONE_INDEX_NAME")
+    if not galileo_api_key: missing_vars.append("GALILEO_API_KEY")
+    if not galileo_project: missing_vars.append("GALILEO_PROJECT")
+    
+    logger_debug.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+    
 # Load configuration
 config = ChatConfig(
-    openai_api_key=os.environ.get("OPENAI_API_KEY"),
-    pinecone_api_key=os.environ.get("PINECONE_API_KEY"),
-    pinecone_index_name=os.environ.get("PINECONE_INDEX_NAME"),
-    galileo_api_key=os.environ.get("GALILEO_API_KEY"), 
-    galileo_project=os.environ.get("GALILEO_PROJECT"),
-    galileo_log_stream=os.environ.get("GALILEO_LOG_STREAM")
+    openai_api_key=openai_api_key,
+    pinecone_api_key=pinecone_api_key,
+    pinecone_index_name=pinecone_index_name,
+    galileo_api_key=galileo_api_key,
+    galileo_project=galileo_project,
+    galileo_log_stream=galileo_log_stream
 )
 
 # Initialize ChatCore
 chat_core = ChatCore(config)
+
+# Log configuration (mask sensitive values)
+logger_debug.info(f"Configuration loaded - Project: {galileo_project}, Log Stream: {galileo_log_stream}")
+logger_debug.info(f"OpenAI API Key: {'*' * 8}{openai_api_key[-4:] if openai_api_key else 'Not set'}")
+logger_debug.info(f"Pinecone API Key: {'*' * 8}{pinecone_api_key[-4:] if pinecone_api_key else 'Not set'}")
+logger_debug.info(f"Pinecone Index: {pinecone_index_name}")
 
 # Create a dict to store conversation history for each session
 conversations = {}
@@ -103,6 +130,28 @@ async def chat():
         top_k = data.get('top_k', 10)
         model = data.get('model', 'gpt-4')
         
+        # Check if client provided Galileo project and log stream
+        request_galileo_project = data.get('galileo_project')
+        request_galileo_log_stream = data.get('galileo_log_stream')
+        
+        # If client provided Galileo project or log stream, create a new config and ChatCore
+        if request_galileo_project or request_galileo_log_stream:
+            custom_config = ChatConfig(
+                openai_api_key=openai_api_key,
+                pinecone_api_key=pinecone_api_key,
+                pinecone_index_name=pinecone_index_name,
+                galileo_api_key=galileo_api_key,
+                galileo_project=request_galileo_project or galileo_project,
+                galileo_log_stream=request_galileo_log_stream or galileo_log_stream
+            )
+            
+            # Create a temporary ChatCore with the custom configuration
+            current_chat_core = ChatCore(custom_config)
+            logger_debug.info(f"Using custom Galileo configuration - Project: {current_chat_core.config.galileo_project}, Log Stream: {current_chat_core.config.galileo_log_stream}")
+        else:
+            # Use the default ChatCore
+            current_chat_core = chat_core
+        
         # Initialize conversation if not exists
         if session_id not in conversations:
             conversations[session_id] = []
@@ -113,8 +162,8 @@ async def chat():
             "content": message
         })
         
-        # Process chat request
-        response = await chat_core.process_chat_request(
+        # Process chat request with the appropriate ChatCore
+        response = await current_chat_core.process_chat_request(
             messages=conversations[session_id],
             system_prompt=system_prompt,
             use_rag=use_rag,
@@ -140,7 +189,7 @@ async def chat():
                     })
                 
                 # Get follow-up response
-                follow_up_response = await chat_core.process_chat_request(
+                follow_up_response = await current_chat_core.process_chat_request(
                     messages=messages_to_use,
                     system_prompt=system_prompt,
                     use_rag=False,  # Don't need RAG for follow-up
