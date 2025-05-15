@@ -1,69 +1,173 @@
-# RAG Chat Application (Streamlit)
+# Finance Transcripts RAG Chat Application
 
-This is a Streamlit version of the RAG Chat Application that provides a user-friendly interface for interacting with the AI model.
+This application provides both a Streamlit web interface and a Flask REST API for interacting with a RAG system focused on financial transcripts.
 
-## Setup
+## Features
 
-1. Create a virtual environment (recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+- Question answering using Retrieval Augmented Generation (RAG) over financial transcripts
+- Tools for stock lookup and trading simulation
+- Galileo observability built-in
+- Available as both an interactive web UI and a REST API
+- Configurable model selection (GPT-4 or GPT-3.5 Turbo)
 
+## Architecture
+
+The application is structured as follows:
+
+- `chat_lib/` - Shared library for both Streamlit and Flask applications
+  - `chat_core.py` - Core chat functionality including RAG, OpenAI integration, and tool handling
+- `app_streamlit.py` - Streamlit web interface
+- `app_flask.py` - Flask REST API
+- `tools/` - Financial tools for ticker lookup, price checking, and trading
+- `galileo_api_helper.py` - Helper functions for Galileo observability
+
+## Installation
+
+1. Clone this repository
 2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Create a `.streamlit/secrets.toml` file with the following structure:
+3. Set up required environment variables or use a `.streamlit/secrets.toml` file:
+
 ```toml
-# API Keys
-openai_api_key = "your_openai_api_key"
-galileo_api_key = "your_galileo_api_key"
-alpha_vantage_api_key = "your_alpha_vantage_api_key"
-pinecone_api_key = "your_pinecone_api_key"
-
-# Galileo Configuration
-galileo_project = "your_galileo_project"
-galileo_log_stream = "default"
+openai_api_key = "your-openai-api-key"
+pinecone_api_key = "your-pinecone-api-key"
+pinecone_index_name = "your-pinecone-index-name"
+galileo_api_key = "your-galileo-api-key"
+galileo_project = "your-galileo-project-name"
+galileo_log_stream = "your-galileo-log-stream-name"
+alpha_vantage_api_key = "your-alpha-vantage-api-key"
+admin_key = "your-admin-key" 
 galileo_console_url = "https://app.galileo.ai"
-
-# Pinecone Configuration
-pinecone_index_name = "galileo-demo"
-pinecone_namespace = "sp500-qa-demo"
 ```
 
-## Running the Application
+## Running the Applications
 
-Run the Streamlit app:
+### Running the Streamlit Web UI
+
 ```bash
-streamlit run app.py
+streamlit run app_streamlit.py
 ```
 
-The application will be available at `http://localhost:8501` by default.
+The application will be available at http://localhost:8501.
 
-## Features
+### Running the Flask API
 
-- Chat interface with message history
-- Configuration sidebar for:
-  - RAG toggle
-  - Namespace selection
-  - Top K value adjustment
-  - System prompt customization
-- Galileo logging integration
-- Tool support (e.g., getTickerSymbol)
-- Error handling and display
+#### Development Mode
 
-## Usage
+```bash
+python app_flask.py
+```
 
-1. Open the application in your browser
-2. Configure settings in the sidebar if needed
-3. Type your message in the chat input
-4. View the AI's response in the chat interface
-5. Continue the conversation as needed
+The API will be available at http://localhost:5000.
 
-## Notes
+#### Production Mode
 
-- The application uses GPT-4 by default
-- All interactions are logged to Galileo for monitoring and analysis
-- Tool calls are supported and will be displayed in the chat 
+```bash
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker app_flask:app
+```
+
+## API Endpoints
+
+### POST /api/chat
+
+Send a chat message and receive a response.
+
+**Request:**
+
+```json
+{
+  "session_id": "string",
+  "message": "string",
+  "system_prompt": "string",
+  "use_rag": true,
+  "namespace": "sp500-qa-demo",
+  "top_k": 10,
+  "model": "gpt-4"
+}
+```
+
+Only `message` is required; all other fields have defaults.
+
+**Response:**
+
+```json
+{
+  "session_id": "string",
+  "response": "string",
+  "tool_results": [
+    {
+      "tool": "string",
+      "result": "string"
+    }
+  ],
+  "conversation": [
+    {
+      "role": "string",
+      "content": "string"
+    }
+  ]
+}
+```
+
+### GET /api/sessions
+
+List all active sessions.
+
+**Response:**
+
+```json
+{
+  "sessions": ["session-id-1", "session-id-2"]
+}
+```
+
+### GET /api/sessions/{session_id}
+
+Get the conversation history for a specific session.
+
+**Response:**
+
+```json
+{
+  "session_id": "string",
+  "conversation": [
+    {
+      "role": "string",
+      "content": "string"
+    }
+  ]
+}
+```
+
+### DELETE /api/sessions/{session_id}
+
+Delete a specific session.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Session {session_id} deleted"
+}
+```
+
+### GET /health
+
+Health check endpoint.
+
+**Response:**
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+## License
+
+[MIT License](LICENSE) 
