@@ -86,11 +86,13 @@ Send a chat message and receive a response.
   "use_rag": true,
   "namespace": "sp500-qa-demo",
   "top_k": 10,
-  "model": "gpt-4"
+  "model": "gpt-4",
+  "galileo_project": "optional-project-name",
+  "galileo_log_stream": "optional-log-stream-name"
 }
 ```
 
-Only `message` is required; all other fields have defaults.
+Only `message` is required; all other fields have defaults. If `galileo_project` and `galileo_log_stream` are provided, they will override the environment variables set in the `.env` file.
 
 **Response:**
 

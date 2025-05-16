@@ -25,7 +25,6 @@ def log_hallucination(project_name: str, log_stream: str):
     trace = logger.start_trace(
         input="What was Broadcom\'s revenue in Q4 and how did it compare to the previous quarter?",
         name="Revenue Comparison",
-        duration_ns=1000000,  # Optional duration in nanoseconds
         created_at=datetime.now()  # Optional creation timestamp
     )
 
@@ -48,7 +47,7 @@ Our revenue had a record $35.8 billion, growing 8% year-on-year. Semiconductor r
 Revenue for our Semiconductor Solutions segment was $7.3 billion and represented 79% of total revenue in the quarter. This was up 3% year-on-year. Gross margins for our Semiconductor Solutions segment were approximately 70%, down 110 basis points year-on-year driven primarily by product mix within our semiconductor end markets. Operating expenses were stable year-on-year at $822 million, resulting in operating profit growth of 2% year-on-year and semiconductor operating margins of 58%.
 Now moving on to our Infrastructure Software segment. Revenue for Infrastructure Software was $2 billion, up 7% year-on-year and represented 21% of revenue. Gross margins for Infrastructure Software were 92% in the quarter, and operating expenses were $339 million in the quarter. Q4 operating profit grew 12% year-on-year with Infrastructure Software operating margin at 75%. Now moving on to cash flow"""],
         name="RAG Retrieval",
-        duration_ns=int(time.time() * 1e9),
+        duration_ns=int(1.3e8),
         status_code=200
     )
 
@@ -81,7 +80,7 @@ Question: What was Broadcom's revenue in Q4 and how did it compare to the previo
         num_input_tokens=50,
         num_output_tokens=20,
         total_tokens=70,
-        duration_ns=int(time.time() * 1e9),
+        duration_ns=int(1.2e8),
         metadata={"temperature": "0.7", "model_version": "1.0"},
         temperature=0.7,
         status_code=200,
@@ -92,7 +91,7 @@ Question: What was Broadcom's revenue in Q4 and how did it compare to the previo
     print("Concluding workflow span...")
     logger.conclude(
         output='Broadcom\'s revenue in Q4 was $9.3 billion, which was up 4% from the previous quarter.',
-        duration_ns=int(time.time() * 1e9),
+        duration_ns=int(2.5e8),
         status_code=200
     )
     logger.flush()
