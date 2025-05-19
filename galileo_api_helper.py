@@ -1,6 +1,42 @@
 import requests
 import logging
 import time
+import streamlit as st
+
+def get_galileo_app_url() -> str:
+    """
+    Get the Galileo web console URL from secrets.
+    
+    Returns:
+        str: The Galileo web console URL without trailing slash
+    """
+    galileo_url = st.secrets.get("galileo_console_url", "https://app.galileo.ai")
+    # Remove trailing slash if present
+    return galileo_url.rstrip('/')
+
+def get_galileo_api_url() -> str:
+    """
+    Get the Galileo API URL from secrets.
+    
+    Returns:
+        str: The Galileo API URL
+    """
+    galileo_url = get_galileo_app_url()
+    
+    # Extract domain without protocol
+    if galileo_url.startswith("https://"):
+        domain = galileo_url[8:]  # Remove https://
+    elif galileo_url.startswith("http://"):
+        domain = galileo_url[7:]  # Remove http://
+    else:
+        domain = galileo_url
+    
+    # Remove app. prefix if exists and any path components
+    if domain.startswith("app."):
+        domain = domain[4:]
+    domain = domain.split('/')[0]  # Get just the domain part
+    
+    return f"https://api.{domain}"
 
 def get_galileo_project_id(api_key: str, project_name: str, starting_token: int = 0, limit: int = 10) -> str:
     """
@@ -15,13 +51,16 @@ def get_galileo_project_id(api_key: str, project_name: str, starting_token: int 
     Returns:
         str: The project ID if found, else None.
     """
-    url = f"https://app.galileo.ai/api/galileo/v2/projects?starting_token={starting_token}&limit={limit}&actions=delete"
+    # Get the base URL from secrets
+    galileo_url = get_galileo_app_url()
+    
+    url = f"{galileo_url}/api/galileo/v2/projects?starting_token={starting_token}&limit={limit}&actions=delete"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": galileo_url,
+        "referer": f"{galileo_url}/",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -53,13 +92,16 @@ def get_galileo_log_stream_id(api_key: str, project_id: str, log_stream_name: st
     Returns:
         str: The log stream ID if found, else None.
     """
-    url = f"https://app.galileo.ai/api/galileo/v2/projects/{project_id}/log_streams"
+    # Get the base URL from secrets
+    galileo_url = get_galileo_app_url()
+    
+    url = f"{galileo_url}/api/galileo/v2/projects/{project_id}/log_streams"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": galileo_url,
+        "referer": f"{galileo_url}/",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -85,13 +127,17 @@ def list_galileo_experiments(api_key: str, project_id: str) -> list:
     Returns:
         list: A list of experiment objects with details.
     """
-    url = f"https://api.galileo.ai/v2/projects/{project_id}/experiments"
+    # Get URLs
+    api_url = get_galileo_api_url()
+    app_url = get_galileo_app_url()
+    
+    url = f"{api_url}/v2/projects/{project_id}/experiments"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": app_url,
+        "referer": f"{app_url}/",
     }
     
     try:
@@ -117,13 +163,17 @@ def delete_galileo_experiment(api_key: str, project_id: str, experiment_id: str)
     Returns:
         bool: True if deletion was successful, False otherwise.
     """
-    url = f"https://api.galileo.ai/v2/projects/{project_id}/experiments/{experiment_id}"
+    # Get URLs
+    api_url = get_galileo_api_url()
+    app_url = get_galileo_app_url()
+    
+    url = f"{api_url}/v2/projects/{project_id}/experiments/{experiment_id}"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
         "content-type": "application/json",
-        "origin": "https://app.galileo.ai",
-        "referer": "https://app.galileo.ai/",
+        "origin": app_url,
+        "referer": f"{app_url}/",
     }
     
     try:

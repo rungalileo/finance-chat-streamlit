@@ -1,8 +1,6 @@
 import os
 import json
 import streamlit as st
-import openai
-from galileo import GalileoLogger
 import time
 import logging
 from typing import List, Dict, Any, Optional
@@ -19,13 +17,13 @@ from tools.get_stock_price import get_stock_price
 from tools.purchase_stocks import purchase_stocks
 
 # Configure logging
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.DEBUG)
 logger_debug = logging.getLogger(__name__)
 
 os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
 os.environ["GALILEO_PROJECT_NAME"] = st.secrets["galileo_project"]
 os.environ["GALILEO_LOG_STREAM_NAME"] = st.secrets["galileo_log_stream"]
-
+os.environ["GALILEO_CONSOLE_URL"] = st.secrets["galileo_console_url"]
 # Initialize OpenAI client
 logger_debug.info("Initializing OpenAI client")
 openai_client = OpenAI(
@@ -319,6 +317,18 @@ async def main():
                 value=default_log_stream,
                 help="The name of your Galileo log stream"
             )
+
+            galileo_api_key = st.text_input(
+                "Galileo API Key",
+                value=st.secrets["galileo_api_key"],
+                help="The API key for your Galileo project"
+            )
+
+            galileo_console_url = st.text_input(
+                "Galileo Console URL",
+                value=st.secrets["galileo_console_url"],
+                help="The URL of your Galileo console"
+            )
         
 
         # Add model selection dropdown
@@ -337,6 +347,9 @@ async def main():
         if not st.session_state.session_active:
             # Show Start Session button when no active session
             if st.button("Start New Session", type="primary"):
+
+                os.environ["GALILEO_API_KEY"] = galileo_api_key
+                os.environ["GALILEO_CONSOLE_URL"] = galileo_console_url
 
                 st.session_state.galileo_logger = initialize_galileo_logger(galileo_project, galileo_log_stream)
                 logger = st.session_state.galileo_logger
