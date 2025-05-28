@@ -1,13 +1,31 @@
-from galileo import GalileoLogger
+from galileo import GalileoLogger, galileo_context
 import os
 import time
 from datetime import datetime
 import logging
-from chat_lib.galileo_logger import initialize_galileo_logger
+from dotenv import load_dotenv
+from galileo import galileo_context
+from galileo.datasets import get_dataset
+from galileo.experiments import run_experiment
+
+load_dotenv()
 
 logger_debug = logging.getLogger(__name__)
 
-def log_hallucination(project_name: str, log_stream: str):
+def main():
+    dataset = get_dataset(name="trades")
+    with galileo_context():
+        results = run_experiment(
+            "finance-chat-test2",
+            dataset=dataset,
+            function=log_hallucination,
+            metrics=["correctness"],
+        project="finance-chat-testing",
+    )
+    
+
+
+def log_hallucination(input=None):
     """
     Log a sample hallucination to Galileo for demonstration and testing purposes.
     
@@ -15,17 +33,10 @@ def log_hallucination(project_name: str, log_stream: str):
         project_name: The Galileo project name to log to
         log_stream: The Galileo log stream to log to
     """
-    logger_debug.info(f'Logging hallucination to project: {project_name}, log stream: {log_stream}')
-    
-    # Initialize Galileo logger
-    logger = initialize_galileo_logger(project_name, log_stream)
+    logger = galileo_context.get_logger_instance()
 
     # Start a workflow trace
     print("Starting workflow trace...")
-    trace = logger.start_trace(
-        input="What was Broadcom\'s revenue in Q4 and how did it compare to the previous quarter?",
-        name="Revenue Comparison",
-    )
 
     # Add retriever span
     print("Adding retriever span...")
@@ -94,4 +105,6 @@ Question: What was Broadcom's revenue in Q4 and how did it compare to the previo
         status_code=200
     )
     logger.flush()
-    print(f"Successfully logged hallucination to project: {project_name}, log stream: {log_stream}")
+
+if __name__ == "__main__":
+    main()

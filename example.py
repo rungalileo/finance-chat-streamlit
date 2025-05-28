@@ -10,7 +10,7 @@ from app import process_chat_message, initialize_galileo_logger
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 
 async def main():

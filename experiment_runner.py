@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
+os.environ["GALILEO_PROJECT_NAME"] = st.secrets["galileo_project"]
+os.environ["GALILEO_LOG_STREAM_NAME"] = st.secrets["galileo_log_stream"]
+os.environ["GALILEO_CONSOLE_URL"] = st.secrets["galileo_console_url"]
+
 def process_trade_prompt(example):
     """
     Custom function to process a trade prompt using process_chat_message.

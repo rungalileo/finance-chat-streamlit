@@ -19,7 +19,7 @@ from tools.purchase_stocks import purchase_stocks
 from tools.sell_stocks import sell_stocks
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARN)
 logger_debug = logging.getLogger(__name__)
 
 os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
@@ -282,7 +282,7 @@ def format_message(role: str, content: str = None, tool_calls=None, tool_call_id
         
     return message
 
-def handle_tool_call(tool_call, tool_result, description, messages_to_use, logger):
+def handle_tool_call(tool_call, tool_result, description, messages_to_use, logger, is_streamlit=True):
     """Handle a tool call and its response.
     
     Args:
@@ -291,6 +291,7 @@ def handle_tool_call(tool_call, tool_result, description, messages_to_use, logge
         description: Human-readable description of what the tool is doing
         messages_to_use: The message history to append to
         logger: The Galileo logger
+        is_streamlit: Whether to use Streamlit-specific code
     """
     # Create tool call data
     tool_call_data = {
@@ -315,24 +316,25 @@ def handle_tool_call(tool_call, tool_result, description, messages_to_use, logge
         "content": tool_result
     })
     
-    # Display the tool response in chat
-    st.session_state.messages.append(format_message(
-        role="assistant", 
-        content=description,
-        tool_calls=[tool_call_data]
-    ))
-    
-    st.session_state.messages.append(format_message(
-        role="tool", 
-        content=tool_result,
-        tool_call_id=tool_call.id
-    ))
-    
-    with st.chat_message("assistant"):
-        st.markdown(escape_dollar_signs(description))
-    
-    with st.chat_message("tool"):
-        st.markdown(escape_dollar_signs(tool_result))
+    if is_streamlit:
+        # Display the tool response in chat
+        st.session_state.messages.append(format_message(
+            role="assistant", 
+            content=description,
+            tool_calls=[tool_call_data]
+        ))
+        
+        st.session_state.messages.append(format_message(
+            role="tool", 
+            content=tool_result,
+            tool_call_id=tool_call.id
+        ))
+        
+        with st.chat_message("assistant"):
+            st.markdown(escape_dollar_signs(description))
+        
+        with st.chat_message("tool"):
+            st.markdown(escape_dollar_signs(tool_result))
 
 async def process_chat_message(
     prompt: str,
@@ -342,7 +344,9 @@ async def process_chat_message(
     use_rag: bool = True,
     namespace: str = "sp500-qa-demo",
     top_k: int = 10,
-    galileo_logger = None
+    galileo_logger = None,
+    is_streamlit=True,
+    ambiguous_tool_names: bool = False
 ) -> Dict[str, Any]:
     """Process a chat message independently of Streamlit UI.
     
@@ -355,7 +359,9 @@ async def process_chat_message(
         namespace (str): Namespace for RAG
         top_k (int): Number of top documents to retrieve for RAG
         galileo_logger: Optional Galileo logger for observability
-        
+        is_streamlit: Whether to use Streamlit-specific code
+        ambiguous_tool_names: Whether to use ambiguous tool names
+
     Returns:
         Dict containing:
             - response_message: The final response message from the model
@@ -367,7 +373,7 @@ async def process_chat_message(
     logger_debug.info(f"Processing chat message: {prompt}")
     
     # Start Galileo trace if available
-    if galileo_logger:
+    if galileo_logger and is_streamlit:
         logger_debug.info("Starting new Galileo trace")
         trace = galileo_logger.start_trace(
             input=prompt,
@@ -437,7 +443,7 @@ async def process_chat_message(
         
         # Check if we need to use ambiguous tool names
         tools_to_use = openai_tools
-        if "ambiguous_tool_names" in st.session_state and st.session_state.ambiguous_tool_names:
+        if ambiguous_tool_names:
             logger_debug.info("Using ambiguous tool names")
             tools_to_use = []
             
@@ -496,7 +502,7 @@ async def process_chat_message(
             for name, tool in tools.items():
                 # Determine the tool name based on whether ambiguous names are enabled
                 tool_name = name
-                if "ambiguous_tool_names" in st.session_state and st.session_state.ambiguous_tool_names:
+                if ambiguous_tool_names:
                     if name in AMBIGUOUS_TOOL_NAMES:
                         tool_name = AMBIGUOUS_TOOL_NAMES[name]
                 
@@ -547,7 +553,7 @@ async def process_chat_message(
                     original_function_name = tool_call.function.name
                     
                     # Map ambiguous tool names back to the original function names
-                    if "ambiguous_tool_names" in st.session_state and st.session_state.ambiguous_tool_names:
+                    if ambiguous_tool_names:
                         # Create a reverse mapping of ambiguous tool names to original names
                         ambiguous_to_original = {v: k for k, v in AMBIGUOUS_TOOL_NAMES.items()}
                         
@@ -586,7 +592,7 @@ async def process_chat_message(
                             ticker=args["ticker"],
                             quantity=args["quantity"],
                             price=args["price"],
-                            galileo_logger=st.session_state.galileo_logger
+                            galileo_logger=galileo_logger
                         )
                         logger_debug.info(f"Processed stock sale for {args['ticker']}")
                         
@@ -596,7 +602,8 @@ async def process_chat_message(
                             tool_result=result,
                             description=f"Processing sale of {args['quantity']} shares of {args['ticker']}...",
                             messages_to_use=messages_to_use,
-                            logger=st.session_state.galileo_logger
+                            logger=galileo_logger,
+                            is_streamlit=is_streamlit
                         )
                     if tool_result:
                         # Create tool call data for tracking
@@ -690,7 +697,7 @@ async def process_chat_message(
             messages_to_use.append(format_message("assistant", response_message.content))
         
         # Conclude the Galileo trace if available
-        if galileo_logger:
+        if galileo_logger and is_streamlit:
             logger_debug.info("Concluding Galileo trace")
             galileo_logger.conclude(
                 output=response_message.content,
@@ -950,7 +957,9 @@ async def main():
                     use_rag=use_rag,
                     namespace=namespace,
                     top_k=top_k,
-                    galileo_logger=st.session_state.galileo_logger
+                    galileo_logger=st.session_state.galileo_logger,
+                    is_streamlit=True,
+                    ambiguous_tool_names=st.session_state.ambiguous_tool_names
                 )
                 
                 # Update the message history
