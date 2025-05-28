@@ -282,6 +282,319 @@ def handle_tool_call(tool_call, tool_result, description, messages_to_use, logge
     with st.chat_message("tool"):
         st.markdown(escape_dollar_signs(tool_result))
 
+async def process_chat_message(
+    prompt: str,
+    message_history: List[Dict[str, Any]], 
+    model: str = "gpt-4", 
+    system_prompt: str = None,
+    use_rag: bool = True,
+    namespace: str = "sp500-qa-demo",
+    top_k: int = 10,
+    galileo_logger = None
+) -> Dict[str, Any]:
+    """Process a chat message independently of Streamlit UI.
+    
+    Args:
+        prompt (str): The user's message/prompt
+        message_history (List[Dict[str, Any]]): Previous message history
+        model (str): The OpenAI model to use
+        system_prompt (str): System prompt to use
+        use_rag (bool): Whether to use RAG for context
+        namespace (str): Namespace for RAG
+        top_k (int): Number of top documents to retrieve for RAG
+        galileo_logger: Optional Galileo logger for observability
+        
+    Returns:
+        Dict containing:
+            - response_message: The final response message from the model
+            - updated_history: The updated message history
+            - rag_documents: Any RAG documents retrieved (if RAG was used)
+    """
+    
+    start_time = time.time()
+    logger_debug.info(f"Processing chat message: {prompt}")
+    
+    # Start Galileo trace if available
+    if galileo_logger:
+        logger_debug.info("Starting new Galileo trace")
+        trace = galileo_logger.start_trace(
+            input=prompt,
+            name="Chat Workflow",
+            tags=["chat"],
+        )
+    
+    try:
+        # Copy message history to avoid modifying the original
+        messages_to_use = message_history.copy()
+        
+        # Add user message to history
+        messages_to_use.append(format_message("user", prompt))
+        
+        rag_documents = []
+        
+        # Handle RAG if enabled
+        if use_rag:
+            logger_debug.info("RAG enabled, fetching relevant documents")
+            rag_response = await get_rag_response(prompt, namespace, top_k)
+            
+            if rag_response and rag_response.documents:
+                logger_debug.info(f"RAG returned {len(rag_response.documents)} documents")
+                rag_documents = rag_response.documents
+                
+                # Log RAG retrieval to Galileo if available
+                if galileo_logger:
+                    galileo_logger.add_retriever_span(
+                        input=prompt,
+                        output=[doc['content'] for doc in rag_response.documents],
+                        name="RAG Retriever",
+                        duration_ns=int((time.time() - start_time) * 1000000),
+                        metadata={
+                            "document_count": str(len(rag_response.documents)),
+                            "namespace": namespace
+                        }
+                    )
+                
+                # Add context to system message
+                context = "\n\n".join(doc['content'] for doc in rag_response.documents)
+                logger_debug.debug(f"Adding RAG context to messages: {context[:200]}...")
+                
+                messages_to_use = [
+                    {
+                        "role": "system",
+                        "content": f"{system_prompt}\n\nHere is the relevant context that you should use to answer the user's questions:\n\n{context}\n\nMake sure to use this context when answering questions."
+                    },
+                    *messages_to_use
+                ]
+            else:
+                logger_debug.warning("No RAG documents found for query")
+                if system_prompt:
+                    messages_to_use = [
+                        {"role": "system", "content": system_prompt},
+                        *messages_to_use
+                    ]
+        elif system_prompt:
+            logger_debug.info("Adding system prompt without RAG")
+            messages_to_use = [
+                {"role": "system", "content": system_prompt},
+                *messages_to_use
+            ]
+        
+        # Get response from OpenAI
+        logger_debug.info(f"Calling OpenAI API with model {model}")
+        logger_debug.debug(f"Messages being sent to OpenAI: {json.dumps([format_message(msg['role'], msg['content']) for msg in messages_to_use], indent=2)}")
+        logger_debug.debug(f"Tools being sent to OpenAI: {json.dumps(openai_tools, indent=2)}")
+        
+        response = openai_client.chat.completions.create(
+            model=model,
+            messages=messages_to_use,
+            tools=openai_tools,
+            tool_choice="auto"
+        )
+        
+        response_message = response.choices[0].message
+        logger_debug.info("Received response from OpenAI")
+        
+        # Calculate token counts safely
+        input_tokens = len(prompt.split()) if prompt else 0
+        output_tokens = len(response_message.content.split()) if response_message.content else 0
+        total_tokens = input_tokens + output_tokens
+        
+        # Log the API call to Galileo if available
+        if galileo_logger:
+            logger_debug.info("Logging API call to Galileo")
+            galileo_logger.add_llm_span(
+                input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
+                output={
+                    "role": response_message.role,
+                    "content": response_message.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": call.type,
+                            "function": {
+                                "name": call.function.name,
+                                "arguments": call.function.arguments
+                            }
+                        } for call in (response_message.tool_calls or [])
+                    ] if response_message.tool_calls else None
+                },
+                model=model,
+                name="OpenAI API Call",
+                tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
+                      for name, tool in tools.items()],
+                duration_ns=int((time.time() - start_time) * 1000000),
+                metadata={"temperature": "0.7", "model": model},
+                tags=["api-call"],
+                num_input_tokens=input_tokens,
+                num_output_tokens=output_tokens,
+                total_tokens=total_tokens
+            )
+        
+        # Handle tool calls if present
+        tool_results = []
+        if response_message.tool_calls:
+            logger_debug.info("Processing tool calls")
+            continue_conversation = True
+            
+            while continue_conversation and response_message.tool_calls:
+                current_tool_calls = []
+                
+                # Process each tool call and its response
+                for tool_call in response_message.tool_calls:
+                    tool_result = None
+                    
+                    if tool_call.function.name == "getTickerSymbol":
+                        company = json.loads(tool_call.function.arguments)["company"]
+                        ticker = get_ticker_symbol(company, galileo_logger)
+                        logger_debug.info(f"Got ticker symbol for {company}: {ticker}")
+                        tool_result = ticker
+                        description = f"Looking up ticker symbol for {company}..."
+                        
+                    elif tool_call.function.name == "getStockPrice":
+                        ticker = json.loads(tool_call.function.arguments)["ticker"]
+                        result = get_stock_price(ticker, galileo_logger=galileo_logger)
+                        logger_debug.info(f"Got stock price for {ticker}")
+                        tool_result = result
+                        description = f"Getting current price for {ticker}..."
+                        
+                    elif tool_call.function.name == "purchaseStocks":
+                        args = json.loads(tool_call.function.arguments)
+                        result = purchase_stocks(
+                            ticker=args["ticker"],
+                            quantity=args["quantity"],
+                            price=args["price"],
+                            galileo_logger=galileo_logger
+                        )
+                        logger_debug.info(f"Processed stock purchase for {args['ticker']}")
+                        tool_result = result
+                        description = f"Processing purchase of {args['quantity']} shares of {args['ticker']}..."
+                    
+                    if tool_result:
+                        # Create tool call data for tracking
+                        current_tool_calls.append({
+                            "tool_call": tool_call,
+                            "result": tool_result,
+                            "description": description
+                        })
+                        
+                        # Add tool call and response to messages
+                        messages_to_use.append({
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{
+                                "id": tool_call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_call.function.name,
+                                    "arguments": tool_call.function.arguments
+                                }
+                            }]
+                        })
+                        
+                        messages_to_use.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": tool_result
+                        })
+                        
+                        # Track all tool results for return
+                        tool_results.append({
+                            "name": tool_call.function.name,
+                            "arguments": json.loads(tool_call.function.arguments),
+                            "result": tool_result,
+                            "description": description
+                        })
+                
+                # Get a new response from OpenAI with the tool results
+                logger_debug.info("Getting follow-up response with tool results")
+                follow_up_response = openai_client.chat.completions.create(
+                    model=model,
+                    messages=messages_to_use,
+                    tools=openai_tools,
+                    tool_choice="auto"
+                )
+                
+                response_message = follow_up_response.choices[0].message
+                logger_debug.debug(f"Received follow-up response from OpenAI")
+                
+                # Calculate token counts for follow-up response
+                follow_up_input_tokens = sum(len(msg.get("content", "").split()) for msg in messages_to_use if msg.get("content"))
+                follow_up_output_tokens = len(response_message.content.split()) if response_message.content else 0
+                follow_up_total_tokens = follow_up_input_tokens + follow_up_output_tokens
+                
+                # Log the follow-up API call to Galileo if available
+                if galileo_logger:
+                    logger_debug.info("Logging follow-up API call to Galileo")
+                    galileo_logger.add_llm_span(
+                        input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
+                        output={
+                            "role": response_message.role,
+                            "content": response_message.content,
+                            "tool_calls": [
+                                {
+                                    "id": call.id,
+                                    "type": call.type,
+                                    "function": {
+                                        "name": call.function.name,
+                                        "arguments": call.function.arguments
+                                    }
+                                } for call in (response_message.tool_calls or [])
+                            ] if response_message.tool_calls else None
+                        },
+                        model=model,
+                        name="Follow-up OpenAI API Call",
+                        tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
+                               for name, tool in tools.items()],
+                        duration_ns=int((time.time() - start_time) * 1000000),
+                        metadata={"temperature": "0.7", "model": model},
+                        tags=["api-call", "follow-up"],
+                        num_input_tokens=follow_up_input_tokens,
+                        num_output_tokens=follow_up_output_tokens,
+                        total_tokens=follow_up_total_tokens
+                    )
+                
+                # If no more tool calls, end the conversation
+                if not response_message.tool_calls:
+                    continue_conversation = False
+        
+        # Add final assistant response to history
+        if response_message.content:
+            messages_to_use.append(format_message("assistant", response_message.content))
+        
+        # Conclude the Galileo trace if available
+        if galileo_logger:
+            logger_debug.info("Concluding Galileo trace")
+            galileo_logger.conclude(
+                output=response_message.content,
+                duration_ns=int((time.time() - start_time) * 1000000),
+                status_code=200
+            )
+            galileo_logger.flush()
+        
+        # Return the results
+        return {
+            "response_message": response_message,
+            "updated_history": messages_to_use,
+            "rag_documents": rag_documents,
+            "tool_results": tool_results,
+            "total_tokens": total_tokens
+        }
+        
+    except Exception as e:
+        logger_debug.error(f"Error processing chat message: {str(e)}", exc_info=True)
+        
+        # Log error to Galileo if available
+        if galileo_logger:
+            logger_debug.info("Logging error to Galileo")
+            galileo_logger.conclude(
+                output=f"Error: {str(e)}",
+                duration_ns=int((time.time() - start_time) * 1000000),
+                status_code=500
+            )
+        
+        # Re-raise the exception
+        raise
+
 async def main():
     st.title("RAG Chat Application")
     logger_debug.info("Starting Streamlit application")
@@ -464,8 +777,22 @@ async def main():
     
     # Display chat messages
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(escape_dollar_signs(message["content"]))
+        # Skip system messages - they should not be displayed in the UI
+        if message["role"] == "system":
+            continue
+        
+        if message["role"] == "tool":
+            # Display tool response
+            with st.chat_message("tool"):
+                st.markdown(escape_dollar_signs(message["content"]))
+        elif message["role"] == "assistant" and "tool_calls" in message and message["tool_calls"]:
+            # Display assistant tool call
+            with st.chat_message("assistant"):
+                st.markdown(escape_dollar_signs(message["content"]))
+        else:
+            # Display regular message
+            with st.chat_message(message["role"]):
+                st.markdown(escape_dollar_signs(message["content"]))
     
     # Only show chat input when session is active
     if st.session_state.session_active:
@@ -473,302 +800,123 @@ async def main():
         if prompt := st.chat_input("What would you like to know?"):
             logger_debug.info(f"Received user input: {prompt}")
             
-            # Add user message to chat history
-            st.session_state.messages.append(format_message("user", prompt))
-            logger_debug.debug(f"Current message history length: {len(st.session_state.messages)}")
-            
             # Display user message
             with st.chat_message("user"):
                 st.markdown(escape_dollar_signs(prompt))
             
-            # Start a new trace within the current session
-            start_time = time.time()
-            logger_debug.info("Starting new Galileo trace")
-            trace = st.session_state.galileo_logger.start_trace(
-                input=prompt,
-                name="Chat Workflow",
-                tags=["chat"],
-            )
-            
             try:
-                messages_to_use = st.session_state.messages.copy()
+                # Process the chat message using our extracted function
+                chat_result = await process_chat_message(
+                    prompt=prompt,
+                    message_history=st.session_state.messages,
+                    model=model_option,
+                    system_prompt=system_prompt,
+                    use_rag=use_rag,
+                    namespace=namespace,
+                    top_k=top_k,
+                    galileo_logger=st.session_state.galileo_logger
+                )
                 
-                # Handle RAG if enabled
-                if use_rag:
-                    logger_debug.info("RAG enabled, fetching relevant documents")
-                    rag_response = await get_rag_response(prompt, namespace, top_k)
-                    
-                    if rag_response and rag_response.documents:
-                        logger_debug.info(f"RAG returned {len(rag_response.documents)} documents")
-                        
-                        # Log RAG retrieval to Galileo
-                        st.session_state.galileo_logger.add_retriever_span(
-                            input=prompt,
-                            output=[doc['content'] for doc in rag_response.documents],
-                            name="RAG Retriever",
-                            duration_ns=int((time.time() - start_time) * 1000000),
-                            metadata={
-                                "document_count": str(len(rag_response.documents)),
-                                "namespace": namespace
+                # Update the message history
+                st.session_state.messages = []  # Clear and rebuild to ensure proper order
+                
+                # First, add all messages up to the user's message
+                for msg in chat_result["updated_history"]:
+                    if msg["role"] == "user" and msg["content"] == prompt:
+                        st.session_state.messages.append(msg)
+                        break
+                    st.session_state.messages.append(msg)
+                
+                # Display tool calls and results if any were used
+                if chat_result["tool_results"]:
+                    for tool_result in chat_result["tool_results"]:
+                        # Create tool call data
+                        tool_call = {
+                            "id": f"call-{time.time()}-{tool_result['name']}",
+                            "type": "function",
+                            "function": {
+                                "name": tool_result["name"],
+                                "arguments": json.dumps(tool_result["arguments"])
                             }
-                        )
-                        
-                        # Add context to system message
-                        context = "\n\n".join(doc['content'] for doc in rag_response.documents)
-                        logger_debug.debug(f"Adding RAG context to messages: {context[:200]}...")
-                        
-                        messages_to_use = [
-                            {
-                                "role": "system",
-                                "content": f"{system_prompt}\n\nHere is the relevant context that you should use to answer the user's questions:\n\n{context}\n\nMake sure to use this context when answering questions."
-                            },
-                            *messages_to_use
-                        ]
-                    else:
-                        logger_debug.warning("No RAG documents found for query")
-                elif system_prompt:
-                    logger_debug.info("Adding system prompt without RAG")
-                    messages_to_use = [
-                        {
-                            "role": "system",
-                            "content": system_prompt
-                        },
-                        *messages_to_use
-                    ]
-                
-                # Get response from OpenAI
-                logger_debug.info("Calling OpenAI API")
-                logger_debug.debug(f"Messages being sent to OpenAI: {json.dumps([format_message(msg['role'], msg['content']) for msg in messages_to_use], indent=2)}")
-                logger_debug.debug(f"Tools being sent to OpenAI: {json.dumps(openai_tools, indent=2)}")
-                
-                response = openai_client.chat.completions.create(
-                    model=model_option,
-                    messages=messages_to_use,
-                    tools=openai_tools,
-                    tool_choice="auto"
-                )
-                
-                response_message = response.choices[0].message
-                logger_debug.info("Received response from OpenAI")
-                logger_debug.debug(f"Response message: {json.dumps({
-                    'role': response_message.role,
-                    'content': response_message.content,
-                    'tool_calls': [{
-                        'id': call.id,
-                        'type': call.type,
-                        'function': {
-                            'name': call.function.name,
-                            'arguments': call.function.arguments
                         }
-                    } for call in (response_message.tool_calls or [])]
-                }, indent=2)}")
-
-                # Calculate token counts safely
-                input_tokens = len(prompt.split()) if prompt else 0
-                output_tokens = len(response_message.content.split()) if response_message.content else 0
-                total_tokens = input_tokens + output_tokens
-
-                # Log the API call
-                logger_debug.info("Logging API call to Galileo")
-                st.session_state.galileo_logger.add_llm_span(
-                    input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
-                    output={
-                        "role": response_message.role,
-                        "content": response_message.content,
-                        "tool_calls": [
-                            {
-                                "id": call.id,
-                                "type": call.type,
-                                "function": {
-                                    "name": call.function.name,
-                                    "arguments": call.function.arguments
-                                }
-                            } for call in (response_message.tool_calls or [])
-                        ] if response_message.tool_calls else None
-                    },
-                    model=model_option,
-                    name="OpenAI API Call",
-                    tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
-                          for name, tool in tools.items()],
-                    duration_ns=int((time.time() - start_time) * 1000000),
-                    metadata={"temperature": "0.7", "model": model_option},
-                    tags=["api-call"],
-                    num_input_tokens=input_tokens,
-                    num_output_tokens=output_tokens,
-                    total_tokens=total_tokens
-                )
-                
-                # Handle tool calls if present
-                if response_message.tool_calls:
-                    logger_debug.info("Processing tool calls")
-                    continue_conversation = True
-                    
-                    while continue_conversation and response_message.tool_calls:
-                        # Process each tool call and its response
-                        for tool_call in response_message.tool_calls:
-                            if tool_call.function.name == "getTickerSymbol":
-                                company = json.loads(tool_call.function.arguments)["company"]
-                                ticker = get_ticker_symbol(company, st.session_state.galileo_logger)
-                                logger_debug.info(f"Got ticker symbol for {company}: {ticker}")
-                                
-                                # Handle tool call and response
-                                handle_tool_call(
-                                    tool_call=tool_call,
-                                    tool_result=ticker,
-                                    description=f"Looking up ticker symbol for {company}...",
-                                    messages_to_use=messages_to_use,
-                                    logger=st.session_state.galileo_logger
-                                )
-                                
-                            elif tool_call.function.name == "getStockPrice":
-                                ticker = json.loads(tool_call.function.arguments)["ticker"]
-                                result = get_stock_price(ticker, galileo_logger=st.session_state.galileo_logger)
-                                logger_debug.info(f"Got stock price for {ticker}")
-                                
-                                # Handle tool call and response
-                                handle_tool_call(
-                                    tool_call=tool_call,
-                                    tool_result=result,
-                                    description=f"Getting current price for {ticker}...",
-                                    messages_to_use=messages_to_use,
-                                    logger=st.session_state.galileo_logger
-                                )
+                        
+                        # Display the tool call
+                        with st.chat_message("assistant"):
+                            if "description" in tool_result:
+                                description = tool_result["description"]
+                            else:
+                                if tool_result["name"] == "getTickerSymbol":
+                                    description = f"Looking up ticker symbol for {tool_result['arguments']['company']}..."
+                                elif tool_result["name"] == "getStockPrice":
+                                    description = f"Getting current price for {tool_result['arguments']['ticker']}..."
+                                elif tool_result["name"] == "purchaseStocks":
+                                    args = tool_result["arguments"]
+                                    description = f"Processing purchase of {args['quantity']} shares of {args['ticker']}..."
+                                else:
+                                    description = f"Using tool: {tool_result['name']}..."
                             
-                            elif tool_call.function.name == "purchaseStocks":
-                                args = json.loads(tool_call.function.arguments)
-                                result = purchase_stocks(
-                                    ticker=args["ticker"],
-                                    quantity=args["quantity"],
-                                    price=args["price"],
-                                    galileo_logger=st.session_state.galileo_logger
-                                )
-                                logger_debug.info(f"Processed stock purchase for {args['ticker']}")
-                                
-                                # Handle tool call and response
-                                handle_tool_call(
-                                    tool_call=tool_call,
-                                    tool_result=result,
-                                    description=f"Processing purchase of {args['quantity']} shares of {args['ticker']}...",
-                                    messages_to_use=messages_to_use,
-                                    logger=st.session_state.galileo_logger
-                                )
+                            st.markdown(escape_dollar_signs(description))
                         
-                        # Get a new response from OpenAI with the tool results
-                        logger_debug.info("Getting follow-up response with tool results")
-                        follow_up_response = openai_client.chat.completions.create(
-                            model=model_option,
-                            messages=messages_to_use,
-                            tools=openai_tools,
-                            tool_choice="auto"
-                        )
+                        # Add tool call message to session state
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": description,
+                            "tool_calls": [tool_call]
+                        })
                         
-                        response_message = follow_up_response.choices[0].message
-                        logger_debug.debug(f"Follow-up response: {json.dumps({
-                            'role': response_message.role,
-                            'content': response_message.content,
-                            'tool_calls': [{
-                                'id': call.id,
-                                'type': call.type,
-                                'function': {
-                                    'name': call.function.name,
-                                    'arguments': call.function.arguments
-                                }
-                            } for call in (response_message.tool_calls or [])]
-                        }, indent=2)}")
-
-                        # Calculate token counts for follow-up response
-                        follow_up_input_tokens = sum(len(msg.get("content", "").split()) for msg in messages_to_use if msg.get("content"))
-                        follow_up_output_tokens = len(response_message.content.split()) if response_message.content else 0
-                        follow_up_total_tokens = follow_up_input_tokens + follow_up_output_tokens
-
-                        # Log the follow-up API call
-                        logger_debug.info("Logging follow-up API call to Galileo")
-                        st.session_state.galileo_logger.add_llm_span(
-                            input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
-                            output={
-                                "role": response_message.role,
-                                "content": response_message.content,
-                                "tool_calls": [
-                                    {
-                                        "id": call.id,
-                                        "type": call.type,
-                                        "function": {
-                                            "name": call.function.name,
-                                            "arguments": call.function.arguments
-                                        }
-                                    } for call in (response_message.tool_calls or [])
-                                ] if response_message.tool_calls else None
-                            },
-                            model=model_option,
-                            name="Follow-up OpenAI API Call",
-                            tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
-                                  for name, tool in tools.items()],
-                            duration_ns=int((time.time() - start_time) * 1000000),
-                            metadata={"temperature": "0.7", "model": model_option},
-                            tags=["api-call", "follow-up"],
-                            num_input_tokens=follow_up_input_tokens,
-                            num_output_tokens=follow_up_output_tokens,
-                            total_tokens=follow_up_total_tokens
-                        )
+                        # Display the tool result
+                        with st.chat_message("tool"):
+                            st.markdown(escape_dollar_signs(tool_result["result"]))
                         
-                        # If no more tool calls, end the conversation
-                        if not response_message.tool_calls:
-                            continue_conversation = False
+                        # Add tool result message to session state
+                        st.session_state.messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": tool_result["result"]
+                        })
                 
-                # Add assistant message to chat history
+                # Display the final assistant response
+                response_message = chat_result["response_message"]
                 if response_message.content:
-                    st.session_state.messages.append(format_message("assistant", response_message.content))
-                    logger_debug.debug(f"Updated message history length: {len(st.session_state.messages)}")
+                    # Add final response to session state
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": response_message.content
+                    })
                     
-                    # Display assistant message
+                    # Display the final response
                     with st.chat_message("assistant"):
                         st.markdown(escape_dollar_signs(response_message.content))
                 
-                # Conclude the trace
-                logger_debug.info("Concluding Galileo trace")
-                st.session_state.galileo_logger.conclude(
-                    output=response_message.content,
-                    duration_ns=int((time.time() - start_time) * 1000000),
-                    status_code=200
-                )
-                st.session_state.galileo_logger.flush()
-
-                # Get the project ID and log stream ID using the helpers
-                api_key = st.secrets["galileo_api_key"]
-                project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
-                log_stream_id = get_galileo_log_stream_id(api_key, project_id, st.session_state.galileo_logger.log_stream_name) if project_id else None
+                # Display Galileo link if available
+                if "galileo_logger" in st.session_state:
+                    api_key = st.secrets["galileo_api_key"]
+                    project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
+                    log_stream_id = get_galileo_log_stream_id(api_key, project_id, st.session_state.galileo_logger.log_stream_name) if project_id else None
+                    
+                    if project_id and log_stream_id:
+                        project_url = f"{st.secrets['galileo_console_url']}/project/{project_id}/log-streams/{log_stream_id}"
+                        # Add a small icon with tooltip in the sidebar
+                        with st.sidebar:
+                            st.markdown("---")  # Add a subtle separator
+                            st.markdown(
+                                f'<div style="font-size: 0.8em; color: #666;">'
+                                f'<a href="{project_url}" target="_blank" title="View traces in Galileo">'
+                                f'📊 View traces</a></div>',
+                                unsafe_allow_html=True
+                            )
+                    else:
+                        with st.sidebar:
+                            st.markdown("---")
+                            st.markdown(
+                                '<div style="font-size: 0.8em; color: #666;">'
+                                '📊 Traces logged</div>',
+                                unsafe_allow_html=True
+                            )
                 
-                if project_id and log_stream_id:
-                    project_url = f"{st.secrets['galileo_console_url']}/project/{project_id}/log-streams/{log_stream_id}"
-                    # Add a small icon with tooltip in the sidebar
-                    with st.sidebar:
-                        st.markdown("---")  # Add a subtle separator
-                        st.markdown(
-                            f'<div style="font-size: 0.8em; color: #666;">'
-                            f'<a href="{project_url}" target="_blank" title="View traces in Galileo">'
-                            f'📊 View traces</a></div>',
-                            unsafe_allow_html=True
-                        )
-                else:
-                    with st.sidebar:
-                        st.markdown("---")
-                        st.markdown(
-                            '<div style="font-size: 0.8em; color: #666;">'
-                            '📊 Traces logged</div>',
-                            unsafe_allow_html=True
-                        )
-            
             except Exception as e:
                 logger_debug.error(f"Error occurred: {str(e)}", exc_info=True)
                 st.error(f"An error occurred: {str(e)}")
-                # Log error and conclude trace
-                logger_debug.info("Logging error to Galileo")
-                st.session_state.galileo_logger.conclude(
-                    output=f"Error: {str(e)}",
-                    duration_ns=int((time.time() - start_time) * 1000000),
-                    status_code=500
-                )
-                logger_debug.info("Error trace flushed")
 
 if __name__ == "__main__":
     import asyncio
