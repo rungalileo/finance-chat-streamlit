@@ -15,6 +15,7 @@ from log_hallucination import log_hallucination
 from tools.get_ticker_symbol import get_ticker_symbol
 from tools.get_stock_price import get_stock_price
 from tools.purchase_stocks import purchase_stocks
+from tools.sell_stocks import sell_stocks
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -161,6 +162,29 @@ tools = {
                     "type": "number",
                     "minimum": 0.01,
                     "description": "The price per share at which to purchase"
+                }
+            },
+            "required": ["ticker", "quantity", "price"]
+        }
+    },
+    "sellStocks": {
+        "description": "Sell a specified number of shares of a stock at a given price.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "The stock ticker symbol to sell"
+                },
+                "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The number of shares to sell"
+                },
+                "price": {
+                    "type": "number",
+                    "minimum": 0.01,
+                    "description": "The price per share at which to sell"
                 }
             },
             "required": ["ticker", "quantity", "price"]
@@ -468,7 +492,24 @@ async def process_chat_message(
                         logger_debug.info(f"Processed stock purchase for {args['ticker']}")
                         tool_result = result
                         description = f"Processing purchase of {args['quantity']} shares of {args['ticker']}..."
-                    
+                    elif tool_call.function.name == "sellStocks":
+                        args = json.loads(tool_call.function.arguments)
+                        result = sell_stocks(
+                            ticker=args["ticker"],
+                            quantity=args["quantity"],
+                            price=args["price"],
+                            galileo_logger=st.session_state.galileo_logger
+                        )
+                        logger_debug.info(f"Processed stock sale for {args['ticker']}")
+                        
+                        # Handle tool call and response
+                        handle_tool_call(
+                            tool_call=tool_call,
+                            tool_result=result,
+                            description=f"Processing sale of {args['quantity']} shares of {args['ticker']}...",
+                            messages_to_use=messages_to_use,
+                            logger=st.session_state.galileo_logger
+                        )
                     if tool_result:
                         # Create tool call data for tracking
                         current_tool_calls.append({
@@ -694,10 +735,10 @@ async def main():
         system_prompt = st.text_area("System Prompt", value="""You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades. Follow these guidelines:
 
 1. For analysis questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
-2. For purchase requests:
-   - First get the ticker symbol using getTickerSymbol
-   - Then get the current stock price using getStockPrice
-   - Finally, execute the purchase using purchaseStocks with the current price
+2. For transaction requests:
+   - First get the ticker symbol using getTickerSymbol.
+   - Then get the current stock price using getStockPrice.
+   - Next, determine whether the user is buying (purchasing) or selling. If the user is purchasing, use purchaseStocks. If the user is selling, use sellStocks. Finally, execute the trade with the current price. 
 3. Format all monetary values with dollar signs and two decimal places.""")
         logger_debug.debug(f"Configuration - RAG: {use_rag}, Namespace: {namespace}, Top K: {top_k}")
         
