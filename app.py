@@ -9,6 +9,7 @@ from openai import OpenAI
 from urllib.parse import unquote
 from galileo_api_helper import get_galileo_project_id, get_galileo_log_stream_id, list_galileo_experiments, delete_all_galileo_experiments
 from chat_lib.galileo_logger import initialize_galileo_logger
+import copy
 
 # Import tools
 from log_hallucination import log_hallucination
@@ -129,6 +130,7 @@ async def get_rag_response(query: str, namespace: str, top_k: int) -> Optional[R
         logger_debug.error(f"Error in RAG request: {str(e)}", exc_info=True)
         return None
 
+
 # Define tools
 tools = {
     "getTickerSymbol": {
@@ -202,6 +204,32 @@ tools = {
             },
             "required": ["ticker"]
         }
+    }
+}
+
+# Define ambiguous tool name mappings
+AMBIGUOUS_TOOL_NAMES = {
+    "purchaseStocks": "tradeStocks",
+    "sellStocks": "makeTrade"
+}
+
+# Define ambiguous tool descriptions
+AMBIGUOUS_TOOL_DESCRIPTIONS = {
+    "tradeStocks": "Execute a trade for a specified number of shares of a stock at a given price.",
+    "makeTrade": "Execute a market trade for a specified number of shares of a stock at a given price."
+}
+
+# Define ambiguous parameter descriptions
+AMBIGUOUS_PARAMETER_DESCRIPTIONS = {
+    "tradeStocks": {
+        "ticker": "The stock ticker symbol to trade",
+        "quantity": "The number of shares to trade",
+        "price": "The price per share for the trade"
+    },
+    "makeTrade": {
+        "ticker": "The stock ticker symbol for the trade",
+        "quantity": "The number of shares involved in the trade",
+        "price": "The price per share for the transaction"
     }
 }
 
@@ -406,12 +434,48 @@ async def process_chat_message(
         # Get response from OpenAI
         logger_debug.info(f"Calling OpenAI API with model {model}")
         logger_debug.debug(f"Messages being sent to OpenAI: {json.dumps([format_message(msg['role'], msg['content']) for msg in messages_to_use], indent=2)}")
-        logger_debug.debug(f"Tools being sent to OpenAI: {json.dumps(openai_tools, indent=2)}")
+        
+        # Check if we need to use ambiguous tool names
+        tools_to_use = openai_tools
+        if "ambiguous_tool_names" in st.session_state and st.session_state.ambiguous_tool_names:
+            logger_debug.info("Using ambiguous tool names")
+            tools_to_use = []
+            
+            for tool in openai_tools:
+                function_name = tool["function"]["name"]
+                function_desc = tool["function"]["description"]
+                function_params = tool["function"]["parameters"]
+                
+                # Create a copy of the tool
+                modified_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": function_name,
+                        "description": function_desc,
+                        "parameters": copy.deepcopy(function_params)
+                    }
+                }
+                
+                # Modify tools with ambiguous names and descriptions
+                if function_name in AMBIGUOUS_TOOL_NAMES:
+                    ambiguous_name = AMBIGUOUS_TOOL_NAMES[function_name]
+                    modified_tool["function"]["name"] = ambiguous_name
+                    modified_tool["function"]["description"] = AMBIGUOUS_TOOL_DESCRIPTIONS[ambiguous_name]
+                    
+                    # Change parameter descriptions to be ambiguous
+                    for param_name in modified_tool["function"]["parameters"]["properties"]:
+                        if param_name in AMBIGUOUS_PARAMETER_DESCRIPTIONS[ambiguous_name]:
+                            modified_tool["function"]["parameters"]["properties"][param_name]["description"] = \
+                                AMBIGUOUS_PARAMETER_DESCRIPTIONS[ambiguous_name][param_name]
+                
+                tools_to_use.append(modified_tool)
+        
+        logger_debug.debug(f"Tools being sent to OpenAI: {json.dumps(tools_to_use, indent=2)}")
         
         response = openai_client.chat.completions.create(
             model=model,
             messages=messages_to_use,
-            tools=openai_tools,
+            tools=tools_to_use,
             tool_choice="auto"
         )
         
@@ -426,6 +490,21 @@ async def process_chat_message(
         # Log the API call to Galileo if available
         if galileo_logger:
             logger_debug.info("Logging API call to Galileo")
+            
+            # Prepare tools list for logging
+            tools_for_logging = []
+            for name, tool in tools.items():
+                # Determine the tool name based on whether ambiguous names are enabled
+                tool_name = name
+                if "ambiguous_tool_names" in st.session_state and st.session_state.ambiguous_tool_names:
+                    if name in AMBIGUOUS_TOOL_NAMES:
+                        tool_name = AMBIGUOUS_TOOL_NAMES[name]
+                
+                tools_for_logging.append({
+                    "name": tool_name,
+                    "parameters": list(tool["parameters"]["properties"].keys())
+                })
+            
             galileo_logger.add_llm_span(
                 input=[format_message(msg["role"], msg["content"]) for msg in messages_to_use],
                 output={
@@ -444,8 +523,7 @@ async def process_chat_message(
                 },
                 model=model,
                 name="OpenAI API Call",
-                tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
-                      for name, tool in tools.items()],
+                tools=tools_for_logging,
                 duration_ns=int((time.time() - start_time) * 1000000),
                 metadata={"temperature": "0.7", "model": model},
                 tags=["api-call"],
@@ -466,22 +544,32 @@ async def process_chat_message(
                 # Process each tool call and its response
                 for tool_call in response_message.tool_calls:
                     tool_result = None
+                    original_function_name = tool_call.function.name
                     
-                    if tool_call.function.name == "getTickerSymbol":
+                    # Map ambiguous tool names back to the original function names
+                    if "ambiguous_tool_names" in st.session_state and st.session_state.ambiguous_tool_names:
+                        # Create a reverse mapping of ambiguous tool names to original names
+                        ambiguous_to_original = {v: k for k, v in AMBIGUOUS_TOOL_NAMES.items()}
+                        
+                        if original_function_name in ambiguous_to_original:
+                            original_function_name = ambiguous_to_original[original_function_name]
+                            logger_debug.info(f"Mapping ambiguous tool name '{tool_call.function.name}' to '{original_function_name}'")
+                    
+                    if original_function_name == "getTickerSymbol":
                         company = json.loads(tool_call.function.arguments)["company"]
                         ticker = get_ticker_symbol(company, galileo_logger)
                         logger_debug.info(f"Got ticker symbol for {company}: {ticker}")
                         tool_result = ticker
                         description = f"Looking up ticker symbol for {company}..."
                         
-                    elif tool_call.function.name == "getStockPrice":
+                    elif original_function_name == "getStockPrice":
                         ticker = json.loads(tool_call.function.arguments)["ticker"]
                         result = get_stock_price(ticker, galileo_logger=galileo_logger)
                         logger_debug.info(f"Got stock price for {ticker}")
                         tool_result = result
                         description = f"Getting current price for {ticker}..."
                         
-                    elif tool_call.function.name == "purchaseStocks":
+                    elif original_function_name == "purchaseStocks":
                         args = json.loads(tool_call.function.arguments)
                         result = purchase_stocks(
                             ticker=args["ticker"],
@@ -492,7 +580,7 @@ async def process_chat_message(
                         logger_debug.info(f"Processed stock purchase for {args['ticker']}")
                         tool_result = result
                         description = f"Processing purchase of {args['quantity']} shares of {args['ticker']}..."
-                    elif tool_call.function.name == "sellStocks":
+                    elif original_function_name == "sellStocks":
                         args = json.loads(tool_call.function.arguments)
                         result = sell_stocks(
                             ticker=args["ticker"],
@@ -551,7 +639,7 @@ async def process_chat_message(
                 follow_up_response = openai_client.chat.completions.create(
                     model=model,
                     messages=messages_to_use,
-                    tools=openai_tools,
+                    tools=tools_to_use,
                     tool_choice="auto"
                 )
                 
@@ -584,8 +672,7 @@ async def process_chat_message(
                         },
                         model=model,
                         name="Follow-up OpenAI API Call",
-                        tools=[{"name": name, "parameters": list(tool["parameters"]["properties"].keys())} 
-                               for name, tool in tools.items()],
+                        tools=tools_for_logging,
                         duration_ns=int((time.time() - start_time) * 1000000),
                         metadata={"temperature": "0.7", "model": model},
                         tags=["api-call", "follow-up"],
@@ -654,6 +741,9 @@ async def main():
     if "galileo_session_id" not in st.session_state:
         st.session_state.galileo_session_id = None
     
+    if "ambiguous_tool_names" not in st.session_state:
+        st.session_state.ambiguous_tool_names = False
+    
     # Sidebar for configuration
     with st.sidebar:
         st.header("Configuration")
@@ -696,7 +786,16 @@ async def main():
         )
         logger_debug.debug(f"Selected model: {model_option}")
         
-
+        # Add checkbox for ambiguous tool names
+        ambiguous_tool_names = st.checkbox(
+            "Ambiguous Tool Names", 
+            value=st.session_state.ambiguous_tool_names,
+            help="Makes sell / buy functions ambiguous to induce poor tool selection"
+        )
+        # Update the session state with the checkbox value
+        st.session_state.ambiguous_tool_names = ambiguous_tool_names
+        logger_debug.debug(f"Ambiguous tool names: {ambiguous_tool_names}")
+        
         # Session control buttons
         if not st.session_state.session_active:
             # Show Start Session button when no active session
@@ -733,13 +832,9 @@ async def main():
         namespace = st.text_input("Namespace", value="sp500-qa-demo")
         top_k = st.number_input("Top K", min_value=1, max_value=20, value=10)
         system_prompt = st.text_area("System Prompt", value="""You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades. Follow these guidelines:
-
-1. For analysis questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
-2. For transaction requests:
-   - First get the ticker symbol using getTickerSymbol.
-   - Then get the current stock price using getStockPrice.
-   - Next, determine whether the user is buying (purchasing) or selling. If the user is purchasing, use purchaseStocks. If the user is selling, use sellStocks. Finally, execute the trade with the current price. 
-3. Format all monetary values with dollar signs and two decimal places.""")
+                                     For analysis questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
+                                     For trading questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
+                                     For any questions, if you don't have the information needed, say so.""")
         logger_debug.debug(f"Configuration - RAG: {use_rag}, Namespace: {namespace}, Top K: {top_k}")
         
 
