@@ -854,64 +854,6 @@ async def main():
             if hallucination_button:
                 log_hallucination(st.session_state.galileo_logger.project_name, st.session_state.galileo_logger.log_stream_name)
 
-            # Add a danger zone section at the bottom
-            st.markdown("---")
-            st.subheader("⚠️ Danger Zone")
-            
-            # Collapsible section to avoid accidental clicks
-            with st.expander("Experiment Management"):
-                # First show the current experiments
-                if st.button("List Experiments"):
-                    api_key = st.secrets["galileo_api_key"]
-                    project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
-                    
-                    if project_id:
-                        experiments = list_galileo_experiments(api_key, project_id)
-                        if experiments:
-                            st.write(f"Found {len(experiments)} experiments:")
-                            for exp in experiments:
-                                st.write(f"• {exp.get('name', 'Unnamed')} ({exp.get('id')})")
-                        else:
-                            st.info("No experiments found.")
-                    else:
-                        st.error(f"Project '{galileo_project}' not found.")
-                
-                # Add the delete all button with a confirmation and admin key verification
-                delete_confirm = st.checkbox("I understand this will delete ALL experiments")
-                
-                # Add admin key input field
-                admin_key_input = st.text_input("Admin Key", type="password", 
-                                                help="Enter the admin key to enable deletion")
-                
-                # Only enable the delete button if the confirmation is checked AND the admin key is correct
-                is_admin_key_valid = admin_key_input == st.secrets.get("admin_key", "")
-                delete_button = st.button(
-                    "Delete All Experiments", 
-                    type="primary", 
-                    disabled=not (delete_confirm and is_admin_key_valid)
-                )
-                
-                # Provide feedback if admin key is incorrect but entered
-                if admin_key_input and not is_admin_key_valid:
-                    st.error("Invalid admin key")
-                
-                if delete_button and delete_confirm and is_admin_key_valid:
-                    api_key = st.secrets["galileo_api_key"]
-                    project_id = get_galileo_project_id(api_key, st.session_state.galileo_logger.project_name)
-                    
-                    if project_id:
-                        with st.spinner("Deleting experiments..."):
-                            result = delete_all_galileo_experiments(api_key, project_id)
-                        
-                        if result["success"]:
-                            st.success(result["message"])
-                        else:
-                            st.warning(result["message"])
-                            if result["failed"] > 0:
-                                st.error(f"Failed to delete {result['failed']} experiments.")
-                    else:
-                        st.error(f"Project '{st.session_state.galileo_logger.project_name}' not found.")
-        
     # Display session status
     if not st.session_state.session_active:
         st.info("⏸️ No active session. Click 'Start New Session' in the sidebar to begin.")
