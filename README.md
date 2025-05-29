@@ -1,204 +1,120 @@
-# Finance Transcripts RAG Chat Application
+# Finance Transcripts Bot
 
-This application provides both a Streamlit web interface and a Flask REST API for interacting with a RAG system focused on financial transcripts.
+A Streamlit-based chat application that uses Retrieval Augmented Generation (RAG) to analyze financial transcripts and provide intelligent responses. The application includes tools for stock trading simulation and observability through Galileo.
 
-## Features
+## Key Features
 
-- Question answering using Retrieval Augmented Generation (RAG) over financial transcripts
-- Tools for stock lookup and trading simulation
-- Galileo observability built-in
-- Available as both an interactive web UI and a REST API
-- Configurable model selection (GPT-4 or GPT-3.5 Turbo)
+- RAG-powered question answering over financial transcripts
+- Stock trading simulation with purchase/sell functionality
+- Galileo observability integration
+- Configurable AI models (GPT-4 or GPT-3.5 Turbo)
+- Experiment runner for batch processing
+- Streamlit web interface with real-time chat
 
-## Architecture
+## Project Structure
 
-The application is structured as follows:
-
-- `chat_lib/` - Shared library for both Streamlit and Flask applications
-  - `chat_core.py` - Core chat functionality including RAG, OpenAI integration, and tool handling
-- `app_streamlit.py` - Streamlit web interface
-- `app_flask.py` - Flask REST API
-- `tools/` - Financial tools for ticker lookup, price checking, and trading
-- `galileo_api_helper.py` - Helper functions for Galileo observability
+```
+.
+├── app.py                 # Main Streamlit application
+├── experiment_runner.py   # (Unused) Script for experiment runner 
+├── generate_env.py        # (Unused) Script to convert secrets.toml to .env
+├── galileo_api_helper.py  # Helper functions for Galileo API
+├── pages/                 # Streamlit page components
+│   └── 2_run_experiment.py
+├── tools/                 # Financial tools
+│   ├── purchase_stocks.py
+│   ├── sell_stocks.py
+│   └── get_stock_price.py
+│   └── get_ticker_symbol.py
+└── log_hallucination.py  # Hallucination logging utility
+```
 
 ## Installation
 
-1. Clone this repository
+1. Clone the repository
 2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set up required environment variables or use a `.streamlit/secrets.toml` file:
+3. Set up environment variables in `.env`:
 
-```toml
-openai_api_key = "your-openai-api-key"
-pinecone_api_key = "your-pinecone-api-key"
-pinecone_index_name = "your-pinecone-index-name"
-galileo_api_key = "your-galileo-api-key"
-galileo_project = "your-galileo-project-name"
-galileo_log_stream = "your-galileo-log-stream-name"
-alpha_vantage_api_key = "your-alpha-vantage-api-key"
-admin_key = "your-admin-key" 
-galileo_console_url = "https://app.galileo.ai"
+```env
+OPENAI_API_KEY=your_openai_api_key
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_ENVIRONMENT=your_pinecone_environment
+PINECONE_INDEX_NAME=your_pinecone_index
+GALILEO_API_KEY=your_galileo_api_key
+GALILEO_PROJECT=your_galileo_project
+GALILEO_LOG_STREAM=your_galileo_log_stream
+ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key
 ```
 
-## Running the Applications
+## Running the Application
 
-### Running the Streamlit Web UI
+### Streamlit UI
 
 ```bash
-streamlit run app_streamlit.py
+streamlit run app.py
 ```
 
-The application will be available at http://localhost:8501.
+The application will be available at http://localhost:8501
 
-### Running the Flask API
+### Experiment Runner
 
-#### Development Mode
+To run experiments:
 
 ```bash
-python app_flask.py
+python experiment_runner.py
 ```
 
-The API will be available at http://localhost:5000.
+## Usage
 
-#### Production Mode
+The application provides:
 
-```bash
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker app_flask:app
-```
+1. Interactive chat interface for financial queries
+2. Stock trading simulation tools
+3. Batch experiment processing
+4. Galileo observability for monitoring and debugging
 
-## API Endpoints
+## Tools
 
-### POST /api/chat
+- Stock Purchase Simulation: Simulates buying stocks with specified ticker, quantity, and price
+- Stock Sale Simulation: Simulates selling stocks with specified ticker, quantity, and price
+- RAG System: Uses Pinecone vector store for semantic search over financial transcripts
 
-Send a chat message and receive a response.
+## Observability
 
-**Request:**
-
-```json
-{
-  "session_id": "string",
-  "message": "string",
-  "system_prompt": "string",
-  "use_rag": true,
-  "namespace": "sp500-qa-demo",
-  "top_k": 10,
-  "model": "gpt-4",
-  "galileo_project": "optional-project-name",
-  "galileo_log_stream": "optional-log-stream-name"
-}
-```
-
-Only `message` is required; all other fields have defaults. If `galileo_project` and `galileo_log_stream` are provided, they will override the environment variables set in the `.env` file.
-
-**Response:**
-
-```json
-{
-  "session_id": "string",
-  "response": "string",
-  "tool_results": [
-    {
-      "tool": "string",
-      "result": "string"
-    }
-  ],
-  "conversation": [
-    {
-      "role": "string",
-      "content": "string"
-    }
-  ]
-}
-```
-
-### GET /api/sessions
-
-List all active sessions.
-
-**Response:**
-
-```json
-{
-  "sessions": ["session-id-1", "session-id-2"]
-}
-```
-
-### GET /api/sessions/{session_id}
-
-Get the conversation history for a specific session.
-
-**Response:**
-
-```json
-{
-  "session_id": "string",
-  "conversation": [
-    {
-      "role": "string",
-      "content": "string"
-    }
-  ]
-}
-```
-
-### DELETE /api/sessions/{session_id}
-
-Delete a specific session.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "message": "Session {session_id} deleted"
-}
-```
-
-### GET /health
-
-Health check endpoint.
-
-**Response:**
-
-```json
-{
-  "status": "healthy"
-}
-```
+The application uses Galileo for:
+- Logging chat interactions
+- Tracking tool usage
+- Monitoring RAG performance
+- Debugging and error tracking
 
 ## License
 
 [MIT License](LICENSE)
 
-## New Feature: Standalone Chat Function
+## Contributing
 
-The core chat functionality has been extracted into a separate function called `process_chat_message`, which can be used independently of the Streamlit UI. This allows you to:
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-1. Integrate the chat functionality into other applications
-2. Run the chat in a standalone script
-3. Use the chat in an API or service
+## Support
 
-## Using the Standalone Chat Function
+For support, please open an issue in the repository.
 
-### Environment Variables
+## Acknowledgments
 
-Create a `.env` file with the following variables:
-
-```
-# Core API keys
-OPENAI_API_KEY=your_openai_api_key_here
-PINECONE_API_KEY=your_pinecone_api_key_here
-PINECONE_INDEX_NAME=your_pinecone_index_name_here
-
-# Galileo configuration (optional)
-GALILEO_API_KEY=your_galileo_api_key_here
-GALILEO_PROJECT_NAME=your_galileo_project_name_here
-GALILEO_LOG_STREAM_NAME=your_galileo_log_stream_name_here
-GALILEO_CONSOLE_URL=your_galileo_console_url_here
+- OpenAI for GPT models
+- Pinecone for vector search
+- Galileo for observability
+- Streamlit for the web interface
+- Alpha Vantage for stock data
 ```
 
 ### Running the Example
