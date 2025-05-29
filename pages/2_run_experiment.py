@@ -5,8 +5,8 @@ from datetime import datetime
 from galileo import galileo_context
 from galileo.datasets import get_dataset
 from galileo.experiments import run_experiment
-from app import process_chat_message
-import asyncio
+from app import process_chat_message_sync
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.WARN)
@@ -85,14 +85,17 @@ st.subheader("RAG Configuration")
 # System prompt
 system_prompt = st.text_area(
     "System Prompt",
-    value="""You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades.""",
+    value="""You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades. Follow these guidelines:
+                                     For analysis questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
+                                     For trading questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
+                                     For any questions, if you don't have the information needed, say so.""",
     height=100
 )
 
 # RAG configuration
 use_rag = st.checkbox("Use RAG", value=True)
 namespace = st.text_input("Pinecone Namespace", value=st.secrets["pinecone_namespace"])
-top_k = st.number_input("Top K", min_value=1, max_value=20, value=10)
+top_k = st.number_input("Top K", min_value=1, max_value=20, value=3)
 
 # Run experiment button
 if st.button("Run Experiment", type="primary"):
@@ -106,25 +109,19 @@ if st.button("Run Experiment", type="primary"):
 
         def process_trade_prompt(example):
             
-            async def process_async(prompt):
-                result = await process_chat_message(
-                prompt=prompt,
-                message_history=[],
-                model=model,
-                system_prompt=system_prompt,
-                use_rag=use_rag,
-                namespace=namespace,
-                top_k=top_k,
-                galileo_logger=galileo_context.get_logger_instance(),
-                ambiguous_tool_names=ambiguous_tool_names,
-                is_streamlit=True
-                )
-                return result["response_message"].content
-
             try:
-
-                # Run the async function
-                result = asyncio.run(process_async(example))
+                result = process_chat_message_sync(
+                    prompt=example,
+                    message_history=[],
+                    model=model,
+                    system_prompt=system_prompt,
+                    use_rag=use_rag,
+                    namespace=namespace,
+                    top_k=top_k,
+                    galileo_logger=galileo_context.get_logger_instance(),
+                    ambiguous_tool_names=ambiguous_tool_names,
+                    is_streamlit=False
+                    )
                 
                 # Extract and return the response content
                 response = result["response_message"].content
@@ -156,8 +153,8 @@ if st.button("Run Experiment", type="primary"):
         results = run_experiment(
             experiment_name=experiment_name,
             dataset=dataset,
-            function=process_trade_prompt,
-            metrics=["correctness"],
+            function=process_trade_prompt,  
+            metrics=["agentic_workflow_success", "agentic_session_success", "bleu", "chunk_attribution_utilization_gpt", "completeness_gpt", "context_adherence_gpt", "context_relevance", "correctness", "ground_truth_adherence", "input_sexist_gpt", "input_toxicity_gpt", "instruction_adherence", "output_sexist_gpt", "output_toxicity_gpt", "prompt_injection_gpt", "prompt_perplexity", "rouge", "tool_error_rate", "tool_selection_quality"],
             project=galileo_project
         )
         

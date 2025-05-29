@@ -4,13 +4,13 @@ import json
 import logging
 import datetime
 from dotenv import load_dotenv
-from app import process_chat_message
+from app import process_chat_message_sync
 from galileo.datasets import get_dataset
 from galileo.experiments import run_experiment
 from galileo import galileo_context
 
 # Configure logging
-logging.basicConfig(level=logging.WARN)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -36,46 +36,39 @@ def process_trade_prompt(example):
     system_prompt = """You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades."""
     message_history = []
 
-    # Define an async function to process the message
-    async def process_async():
-        # Process the chat message
-        result = await process_chat_message(
+    try:
+        print("Processing prompt: ", example)
+        result = process_chat_message_sync(
             prompt=example,
             message_history=message_history,
             model=model,
             system_prompt=system_prompt,
             use_rag=True,
             namespace="sp500-qa-demo",
-            top_k=5,
+            top_k=3,
             galileo_logger=galileo_context.get_logger_instance(),
             ambiguous_tool_names=True,
             is_streamlit=False
         )
-        return result
-
-    # Process the chat message
-    try:
-        # Run the async function
-        result = asyncio.run(process_async())
-        
-        # Extract and return the response content
-        response = result["response_message"].content
-        
-        # Add metadata about tool usage if available
-        metadata = {}
-        if result.get("tool_results"):
-            metadata["tools_used"] = [tool["name"] for tool in result["tool_results"]]
-        
-        if result.get("rag_documents"):
-            metadata["rag_documents_count"] = len(result["rag_documents"])
-        
-        # Log the metadata separately
-        logger.info(f"Response metadata: {json.dumps(metadata)}")
-        
-        return response  # Return just the response string for Galileo logging
     except Exception as e:
         logger.error(f"Error processing prompt: {e}")
         return {"response": f"Error: {str(e)}", "metadata": {"error": str(e)}}
+
+    # Extract and return the response content
+    response = result["response_message"].content
+    
+    # Add metadata about tool usage if available
+    metadata = {}
+    if result.get("tool_results"):
+        metadata["tools_used"] = [tool["name"] for tool in result["tool_results"]]
+    
+    if result.get("rag_documents"):
+        metadata["rag_documents_count"] = len(result["rag_documents"])
+    
+    # Log the metadata separately
+    logger.info(f"Response metadata: {json.dumps(metadata)}")
+    
+    return response  # Return just the response string for Galileo logging
 
 def main():
     # Ensure required environment variables are set

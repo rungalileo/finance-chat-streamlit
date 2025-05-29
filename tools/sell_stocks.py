@@ -28,7 +28,7 @@ def _log_to_galileo(galileo_logger: GalileoLogger, ticker: str, quantity: int, p
             "total_sale": quantity * price,
             "fees": 14.99
         }),
-        name="Purchase Stocks",
+        name="Sell Stocks",
         duration_ns=int((time.time() - start_time) * 1000000),
         metadata={
             "ticker": ticker,
@@ -72,7 +72,8 @@ def sell_stocks(ticker: str, quantity: int, price: float, galileo_logger: Galile
             "fees": fees,
             "total_with_fees": total_with_fees,
             "status": "completed",
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "description": "Sale of stocks completed successfully"
         }
         
         _log_to_galileo(galileo_logger, ticker, quantity, price, order_id, start_time)

@@ -19,7 +19,7 @@ from tools.purchase_stocks import purchase_stocks
 from tools.sell_stocks import sell_stocks
 
 # Configure logging
-logging.basicConfig(level=logging.WARN)
+logging.basicConfig(level=logging.DEBUG)
 logger_debug = logging.getLogger(__name__)
 
 os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
@@ -46,7 +46,7 @@ class RagResponse:
     def __init__(self, documents: List[Dict[str, Any]]):
         self.documents = documents
 
-async def get_rag_response(query: str, namespace: str, top_k: int) -> Optional[RagResponse]:
+def get_rag_response(query: str, namespace: str, top_k: int) -> Optional[RagResponse]:
     """Get RAG response using Pinecone vector store."""
     try:
         logger_debug.info(f"Making RAG request - Query: {query}, Namespace: {namespace}, Top K: {top_k}")
@@ -343,7 +343,7 @@ async def process_chat_message(
     system_prompt: str = None,
     use_rag: bool = True,
     namespace: str = "sp500-qa-demo",
-    top_k: int = 10,
+    top_k: int = 3,
     galileo_logger = None,
     is_streamlit=True,
     ambiguous_tool_names: bool = False
@@ -368,12 +368,34 @@ async def process_chat_message(
             - updated_history: The updated message history
             - rag_documents: Any RAG documents retrieved (if RAG was used)
     """
-    
+    return process_chat_message_sync(
+        prompt=prompt,
+        message_history=message_history,
+        model=model,
+        system_prompt=system_prompt,
+        use_rag=use_rag,
+        namespace=namespace,
+        top_k=top_k,
+        galileo_logger=galileo_logger,
+        is_streamlit=is_streamlit,
+        ambiguous_tool_names=ambiguous_tool_names
+    )
+
+def process_chat_message_sync(prompt: str,
+    message_history: List[Dict[str, Any]], 
+    model: str = "gpt-4", 
+    system_prompt: str = None,
+    use_rag: bool = True,
+    namespace: str = "sp500-qa-demo",
+    top_k: int = 3,
+    galileo_logger = None,
+    is_streamlit=True,
+    ambiguous_tool_names: bool = False) -> Dict[str, Any]:
     start_time = time.time()
     logger_debug.info(f"Processing chat message: {prompt}")
     
     # Start Galileo trace if available
-    if galileo_logger and is_streamlit:
+    if galileo_logger and not galileo_logger.current_parent():
         logger_debug.info("Starting new Galileo trace")
         trace = galileo_logger.start_trace(
             input=prompt,
@@ -393,7 +415,7 @@ async def process_chat_message(
         # Handle RAG if enabled
         if use_rag:
             logger_debug.info("RAG enabled, fetching relevant documents")
-            rag_response = await get_rag_response(prompt, namespace, top_k)
+            rag_response = get_rag_response(prompt, namespace, top_k)
             
             if rag_response and rag_response.documents:
                 logger_debug.info(f"RAG returned {len(rag_response.documents)} documents")
@@ -719,7 +741,7 @@ async def process_chat_message(
         logger_debug.error(f"Error processing chat message: {str(e)}", exc_info=True)
         
         # Log error to Galileo if available
-        if galileo_logger:
+        if galileo_logger and is_streamlit:
             logger_debug.info("Logging error to Galileo")
             galileo_logger.conclude(
                 output=f"Error: {str(e)}",
@@ -837,7 +859,7 @@ async def main():
         st.subheader("RAG Configuration")
         use_rag = st.checkbox("Use RAG", value=True)
         namespace = st.text_input("Namespace", value="sp500-qa-demo")
-        top_k = st.number_input("Top K", min_value=1, max_value=20, value=10)
+        top_k = st.number_input("Top K", min_value=1, max_value=20, value=3)
         system_prompt = st.text_area("System Prompt", value="""You are a stock market analyst and trading assistant. You help users analyze stocks and execute trades. Follow these guidelines:
                                      For analysis questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.
                                      For trading questions, first use the provided context to answer. Only use tools if the context doesn't contain the information needed.

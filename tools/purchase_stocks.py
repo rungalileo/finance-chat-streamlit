@@ -72,7 +72,8 @@ def purchase_stocks(ticker: str, quantity: int, price: float, galileo_logger: Ga
             "fees": fees,
             "total_with_fees": total_with_fees,
             "status": "completed",
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "description": "Purchase of stocks completed successfully"
         }
         
         _log_to_galileo(galileo_logger, ticker, quantity, price, order_id, start_time)
