@@ -38,13 +38,14 @@ A Streamlit-based chat application that uses Retrieval Augmented Generation (RAG
 pip install -r requirements.txt
 ```
 
-3. Set up environment variables in `.env`:
+3. Set up secrets in .streamlit/secrets.toml
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
 PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_ENVIRONMENT=your_pinecone_environment
-PINECONE_INDEX_NAME=your_pinecone_index
+galileo_console_url = your_galileo_console_url
+pinecone_index_name = "galileo-demo"
+pinecone_namespace = "sp500-qa-demo"
 GALILEO_API_KEY=your_galileo_api_key
 GALILEO_PROJECT=your_galileo_project
 GALILEO_LOG_STREAM=your_galileo_log_stream
@@ -60,14 +61,6 @@ streamlit run app.py
 ```
 
 The application will be available at http://localhost:8501
-
-### Experiment Runner
-
-To run experiments:
-
-```bash
-python experiment_runner.py
-```
 
 ## Usage
 
