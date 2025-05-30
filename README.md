@@ -41,19 +41,18 @@ pip install -r requirements.txt
 3. Set up secrets in .streamlit/secrets.toml
 
 ```env
-OPENAI_API_KEY=your_openai_api_key
-PINECONE_API_KEY=your_pinecone_api_key
-galileo_console_url = your_galileo_console_url
+openai_api_key = "your_openai_api_key"
+pinecone_api_key = "your_pinecone_api_key"
+galileo_console_url = "your_galileo_console_url"
 pinecone_index_name = "galileo-demo"
 pinecone_namespace = "sp500-qa-demo"
-GALILEO_API_KEY=your_galileo_api_key
-GALILEO_PROJECT=your_galileo_project
-GALILEO_LOG_STREAM=your_galileo_log_stream
-ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key
+galileo_api_key = "your_galileo_api_key"
+galileo_project = "your_galileo_project"
+galileo_log_stream = "your_galileo_log_stream"
+ALPHA_VANTAGE_API_KEY= "your_alpha_vantage_key"
 ```
 
 ## Running the Application
-
 ### Streamlit UI
 
 ```bash
