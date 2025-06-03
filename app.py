@@ -808,9 +808,9 @@ async def main():
         st.subheader("Model Configuration")
         model_option = st.selectbox(
             "Select GPT Model",
-            options=["gpt-4", "gpt-3.5-turbo"],
+            options=["gpt-4o-mini", "gpt-4o", "gpt-4", "gpt-3.5-turbo"],
             index=0,  # Default to GPT-4
-            format_func=lambda x: "GPT-4" if x == "gpt-4" else "GPT-3.5 Turbo",
+            format_func=lambda x: "GPT-4" if x == "gpt-4" else "GPT-3.5 Turbo" if x == "gpt-3.5-turbo" else "GPT-4o-mini" if x == "gpt-4o-mini" else "GPT-4o",
             help="Select which OpenAI model to use for chat responses"
         )
         logger_debug.debug(f"Selected model: {model_option}")
