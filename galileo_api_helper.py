@@ -54,7 +54,7 @@ def get_galileo_project_id(api_key: str, project_name: str, starting_token: int 
     # Get the base URL from secrets
     galileo_url = get_galileo_app_url()
     
-    url = f"{galileo_url}/api/galileo/v2/projects?starting_token={starting_token}&limit={limit}&actions=delete"
+    url = f"{galileo_url}/api/galileo/public/v2/projects/paginated?starting_token={starting_token}&limit={limit}"
     headers = {
         "accept": "*/*",
         "galileo-api-key": api_key,
