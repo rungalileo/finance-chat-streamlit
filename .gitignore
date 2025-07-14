@@ -6,3 +6,4 @@ env/
 .streamlit
 tools/__pycache__/
 __*
+venv/
