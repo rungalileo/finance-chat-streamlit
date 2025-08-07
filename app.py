@@ -30,6 +30,7 @@ logger_debug = logging.getLogger(__name__)
 
 os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
 os.environ["GALILEO_PROJECT_NAME"] = st.secrets["galileo_project"]
+os.environ["GALILEO_PROJECT"] = st.secrets["galileo_project"]
 os.environ["GALILEO_LOG_STREAM_NAME"] = st.secrets["galileo_log_stream"]
 os.environ["GALILEO_CONSOLE_URL"] = st.secrets["galileo_console_url"]
 # Initialize OpenAI client
@@ -272,7 +273,7 @@ def create_protected_chain(model: str = "gpt-4o", temperature: float = 0.7, time
                     "metric": "prompt_injection",
                     "operator": "eq",
                     "target_value": "new_context",
-                }
+                },
             ]),
         ],
         timeout=timeout
