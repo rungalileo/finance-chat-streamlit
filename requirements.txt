@@ -4,5 +4,5 @@ galileo[all]
 langchain-openai
 pinecone
 flask==2.3.3
-gunicorn==21.2.0
+gunicorn==23.0.0
 flask-cors==4.0.0
