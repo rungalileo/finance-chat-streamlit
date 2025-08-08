@@ -402,7 +402,7 @@ async def process_chat_message(
     galileo_logger = None,
     is_streamlit=True,
     ambiguous_tool_names: bool = False,
-    use_protection: bool = True
+    use_protection: bool = False
 ) -> Dict[str, Any]:
     """Process a chat message independently of Streamlit UI.
     
@@ -449,7 +449,7 @@ def process_chat_message_sync(prompt: str,
     galileo_logger = None,
     is_streamlit=True,
     ambiguous_tool_names: bool = False,
-    use_protection: bool = True) -> Dict[str, Any]:
+    use_protection: bool = False) -> Dict[str, Any]:
     start_time = time.time()
     logger_debug.info(f"Processing chat message: {prompt}")
     
@@ -1165,7 +1165,7 @@ async def main():
         
         # Add checkbox for Galileo Protect
         if "use_protection" not in st.session_state:
-            st.session_state.use_protection = True
+            st.session_state.use_protection = False
             
         use_protection = st.checkbox(
             "Enable Galileo Protect", 
