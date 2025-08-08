@@ -28,25 +28,57 @@ from tools.sell_stocks import sell_stocks
 logging.basicConfig(level=logging.DEBUG)
 logger_debug = logging.getLogger(__name__)
 
-os.environ["GALILEO_API_KEY"] = st.secrets["galileo_api_key"]
-os.environ["GALILEO_PROJECT_NAME"] = st.secrets["galileo_project"]
-os.environ["GALILEO_PROJECT"] = st.secrets["galileo_project"]
-os.environ["GALILEO_LOG_STREAM_NAME"] = st.secrets["galileo_log_stream"]
-os.environ["GALILEO_CONSOLE_URL"] = st.secrets["galileo_console_url"]
+# Environment variable fallbacks for production
+def get_secret(key, default=None):
+    """Get secret from st.secrets or environment variable."""
+    try:
+        return st.secrets[key]
+    except:
+        return os.getenv(key, default)
+
+# Set environment variables with fallbacks
+os.environ["GALILEO_API_KEY"] = get_secret("galileo_api_key", os.getenv("GALILEO_API_KEY"))
+os.environ["GALILEO_PROJECT_NAME"] = get_secret("galileo_project", os.getenv("GALILEO_PROJECT_NAME"))
+os.environ["GALILEO_PROJECT"] = get_secret("galileo_project", os.getenv("GALILEO_PROJECT"))
+os.environ["GALILEO_LOG_STREAM_NAME"] = get_secret("galileo_log_stream", os.getenv("GALILEO_LOG_STREAM_NAME"))
+os.environ["GALILEO_CONSOLE_URL"] = get_secret("galileo_console_url", os.getenv("GALILEO_CONSOLE_URL"))
+
+# Print configuration for debugging
+print("=" * 60)
+print("🚀 FINANCE CHAT APP STARTUP CONFIGURATION")
+print("=" * 60)
+print(f"Galileo Project (GALILEO_PROJECT_NAME): {os.getenv('GALILEO_PROJECT_NAME', 'Not set')}")
+print(f"Galileo Project (GALILEO_PROJECT): {os.getenv('GALILEO_PROJECT', 'Not set')}")
+print(f"Galileo API Key: {'✅ Set' if os.getenv('GALILEO_API_KEY') else '❌ Not set'}")
+print(f"Galileo Console URL: {os.getenv('GALILEO_CONSOLE_URL', 'Not set')}")
+print(f"OpenAI API Key: {'✅ Set' if get_secret('openai_api_key', os.getenv('OPENAI_API_KEY')) else '❌ Not set'}")
+print(f"Pinecone API Key: {'✅ Set' if get_secret('pinecone_api_key', os.getenv('PINECONE_API_KEY')) else '❌ Not set'}")
+print(f"Pinecone Index: {get_secret('pinecone_index_name', os.getenv('PINECONE_INDEX_NAME', 'Not set'))}")
+print("=" * 60)
 # Initialize OpenAI client
 logger_debug.info("Initializing OpenAI client")
-openai_client = OpenAI(
-    api_key=st.secrets["openai_api_key"]
-)
-logger_debug.debug(f"OpenAI API Key loaded: {'*' * 8}{st.secrets['openai_api_key'][-4:] if st.secrets['openai_api_key'] else 'Not found'}")
+openai_api_key = get_secret("openai_api_key", os.getenv("OPENAI_API_KEY"))
+if not openai_api_key:
+    logger_debug.error("OpenAI API key not found in secrets or environment variables")
+    st.error("OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.")
+    st.stop()
+
+openai_client = OpenAI(api_key=openai_api_key)
+logger_debug.debug(f"OpenAI API Key loaded: {'*' * 8}{openai_api_key[-4:] if openai_api_key else 'Not found'}")
 
 # Initialize Pinecone
 logger_debug.info("Initializing Pinecone client")
+pinecone_api_key = get_secret("pinecone_api_key", os.getenv("PINECONE_API_KEY"))
+if not pinecone_api_key:
+    logger_debug.error("Pinecone API key not found in secrets or environment variables")
+    st.error("Pinecone API key not configured. Please set PINECONE_API_KEY environment variable.")
+    st.stop()
+
 pc = Pinecone(
-    api_key=st.secrets["pinecone_api_key"],
+    api_key=pinecone_api_key,
     spec=ServerlessSpec(cloud="aws", region="us-west-2")
 )
-logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{st.secrets['pinecone_api_key'][-4:] if st.secrets['pinecone_api_key'] else 'Not found'}")
+logger_debug.debug(f"Pinecone API Key loaded: {'*' * 8}{pinecone_api_key[-4:] if pinecone_api_key else 'Not found'}")
 
 # Define RAG response type
 class RagResponse:
@@ -68,10 +100,10 @@ def get_rag_response(query: str, namespace: str, top_k: int) -> Optional[RagResp
         logger_debug.debug(f"Generated embedding of length: {len(query_embedding)}")
         
         # Initialize Pinecone index
-        index_name = st.secrets["pinecone_index_name"]
+        index_name = get_secret("pinecone_index_name", os.getenv("PINECONE_INDEX_NAME"))
         logger_debug.debug(f"Using Pinecone index: {index_name}")
         if not index_name:
-            logger_debug.error("PINECONE_INDEX_NAME environment variable is not set")
+            logger_debug.error("PINECONE_INDEX_NAME not found in secrets or environment variables")
             return None
             
         index = pc.Index(index_name)
@@ -259,9 +291,13 @@ def create_protected_chain(model: str = "gpt-4o", temperature: float = 0.7, time
     # Create LangChain LLM
     llm = ChatOpenAI(model=model, temperature=temperature)
     
-    # Get project name
+    # Get project name with detailed logging
     project_name = os.getenv("GALILEO_PROJECT_NAME", st.secrets.get("galileo_project", "default"))
     logger_debug.info(f"Using Galileo project: {project_name}")
+    logger_debug.info(f"Environment GALILEO_PROJECT_NAME: {os.getenv('GALILEO_PROJECT_NAME')}")
+    logger_debug.info(f"Environment GALILEO_PROJECT: {os.getenv('GALILEO_PROJECT')}")
+    logger_debug.info(f"Streamlit secret galileo_project: {st.secrets.get('galileo_project', 'Not found')}")
+    logger_debug.info(f"Streamlit secret galileo_project_name: {st.secrets.get('galileo_project_name', 'Not found')}")
     
     # Create a ProtectTool instance
     protect_tool = ProtectTool(
@@ -1095,8 +1131,8 @@ async def main():
     logger_debug.info("Starting Streamlit application")
     
     # Get query parameters
-    default_project = unquote(st.query_params.get("project", st.secrets["galileo_project"]))
-    default_log_stream = unquote(st.query_params.get("log_stream", st.secrets["galileo_log_stream"]))
+    default_project = unquote(st.query_params.get("project", get_secret("galileo_project", "default")))
+    default_log_stream = unquote(st.query_params.get("log_stream", get_secret("galileo_log_stream", "default")))
     
     # Initialize session state variables if not present
     if "messages" not in st.session_state:
@@ -1131,13 +1167,13 @@ async def main():
 
             galileo_api_key = st.text_input(
                 "Galileo API Key",
-                value=st.secrets["galileo_api_key"],
+                value=get_secret("galileo_api_key", ""),
                 help="The API key for your Galileo project"
             )
 
             galileo_console_url = st.text_input(
                 "Galileo Console URL",
-                value=st.secrets["galileo_console_url"],
+                value=get_secret("galileo_console_url", ""),
                 help="The URL of your Galileo console"
             )
         
@@ -1175,6 +1211,17 @@ async def main():
         # Update the session state with the checkbox value
         st.session_state.use_protection = use_protection
         logger_debug.debug(f"Galileo Protect enabled: {use_protection}")
+        
+        # Debug configuration section
+        if st.checkbox("Show Debug Configuration"):
+            st.subheader("🔧 Debug Configuration")
+            st.text(f"Galileo Project (env GALILEO_PROJECT_NAME): {os.getenv('GALILEO_PROJECT_NAME', 'Not set')}")
+            st.text(f"Galileo Project (env GALILEO_PROJECT): {os.getenv('GALILEO_PROJECT', 'Not set')}")
+            st.text(f"Galileo Project (secret galileo_project): {get_secret('galileo_project', 'Not found')}")
+            st.text(f"Galileo Project (secret galileo_project_name): {get_secret('galileo_project_name', 'Not found')}")
+            st.text(f"Galileo API Key: {'✅ Set' if get_secret('galileo_api_key') else '❌ Not set'}")
+            st.text(f"Galileo Console URL: {get_secret('galileo_console_url', 'Not set')}")
+            st.text(f"Protection Enabled: {'✅ Yes' if use_protection else '❌ No'}")
         
         # Session control buttons
         if not st.session_state.session_active:
@@ -1227,6 +1274,35 @@ async def main():
             if hallucination_button:
                 log_hallucination(st.session_state.galileo_logger.project_name, st.session_state.galileo_logger.log_stream_name)
 
+    # Health check button
+    if st.button("🔍 Health Check"):
+        st.success("✅ App is running!")
+        st.info(f"OpenAI API: {'✅' if openai_api_key else '❌'}")
+        st.info(f"Pinecone API: {'✅' if pinecone_api_key else '❌'}")
+        st.info(f"Galileo API: {'✅' if get_secret('galileo_api_key') else '❌'}")
+        st.info(f"Pinecone Index: {'✅' if get_secret('pinecone_index_name') else '❌'}")
+        
+        # Display project configuration
+        galileo_project = get_secret('galileo_project', os.getenv('GALILEO_PROJECT_NAME'))
+        galileo_project_name = get_secret('galileo_project_name', os.getenv('GALILEO_PROJECT_NAME'))
+        st.info(f"Galileo Project (from galileo_project): {galileo_project}")
+        st.info(f"Galileo Project (from galileo_project_name): {galileo_project_name}")
+        st.info(f"Environment GALILEO_PROJECT: {os.getenv('GALILEO_PROJECT')}")
+        st.info(f"Environment GALILEO_PROJECT_NAME: {os.getenv('GALILEO_PROJECT_NAME')}")
+        
+        # Test basic connectivity
+        try:
+            # Test OpenAI
+            if openai_api_key:
+                test_response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": "Hello"}],
+                    max_tokens=5
+                )
+                st.success("✅ OpenAI API connection successful")
+        except Exception as e:
+            st.error(f"❌ OpenAI API connection failed: {str(e)}")
+    
     # Display session status
     if not st.session_state.session_active:
         st.info("⏸️ No active session. Click 'Start New Session' in the sidebar to begin.")
